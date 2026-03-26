@@ -701,6 +701,8 @@ $ScriptVersion = "1.12.4"
 
 #region Constants
 $HoursPerMonth = 730
+$HoursPerYear = $HoursPerMonth * 12
+$HoursPer3Years = $HoursPerMonth * 36
 $ParallelThrottleLimit = 4
 $OutputWidthWithPricing = 200
 $OutputWidthBase = 122
@@ -2953,7 +2955,7 @@ function Get-AzVMPricing {
                             $savingsPlan1YrPrices[$vmSize] = @{
                                 Hourly   = [math]::Round($sp.retailPrice, 4)
                                 Monthly  = [math]::Round($sp.retailPrice * $HoursPerMonth, 2)
-                                Total    = [math]::Round($sp.retailPrice * 8760, 2)
+                                Total    = [math]::Round($sp.retailPrice * $HoursPerYear, 2)
                                 Currency = $item.currencyCode
                             }
                         }
@@ -2961,7 +2963,7 @@ function Get-AzVMPricing {
                             $savingsPlan3YrPrices[$vmSize] = @{
                                 Hourly   = [math]::Round($sp.retailPrice, 4)
                                 Monthly  = [math]::Round($sp.retailPrice * $HoursPerMonth, 2)
-                                Total    = [math]::Round($sp.retailPrice * 26280, 2)
+                                Total    = [math]::Round($sp.retailPrice * $HoursPer3Years, 2)
                                 Currency = $item.currencyCode
                             }
                         }
