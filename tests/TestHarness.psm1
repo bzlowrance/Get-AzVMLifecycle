@@ -1,6 +1,6 @@
-function Get-MainScriptAst {
+﻿function Get-MainScriptAst {
     param(
-        [string]$ScriptPath = (Join-Path $PSScriptRoot '..\Get-AzVMAvailability.ps1')
+        [string]$ScriptPath = (Join-Path $PSScriptRoot '..\GET-AZVMLIFECYCLE.ps1')
     )
 
     if (-not (Test-Path $ScriptPath)) {
@@ -25,9 +25,9 @@ $script:ModuleFunctionCache = $null
 function Find-FunctionInModule {
     <#
     .SYNOPSIS
-        Searches the AzVMAvailability module Private/ directory for a function definition.
+        Searches the AzVMLifecycle module Private/ directory for a function definition.
     .DESCRIPTION
-        Parses all .ps1 files in AzVMAvailability/Private/ on first call, caches results,
+        Parses all .ps1 files in AzVMLifecycle/Private/ on first call, caches results,
         and returns cached definitions on subsequent calls. Throws on parse errors.
     #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'FunctionName', Justification = 'Used in cache lookup after cache-building block')]
@@ -39,7 +39,7 @@ function Find-FunctionInModule {
     # Build cache on first call
     if ($null -eq $script:ModuleFunctionCache) {
         $script:ModuleFunctionCache = @{}
-        $moduleRoot = Join-Path $PSScriptRoot '..\AzVMAvailability\Private'
+        $moduleRoot = Join-Path $PSScriptRoot '..\AzVMLifecycle\Private'
         if (-not (Test-Path $moduleRoot)) { return $null }
 
         foreach ($file in (Get-ChildItem -Path $moduleRoot -Filter '*.ps1' -Recurse -File)) {
@@ -76,7 +76,7 @@ function Import-MainScriptFunctions {
         [Parameter(Mandatory)]
         [string[]]$FunctionNames,
 
-        [string]$ScriptPath = (Join-Path $PSScriptRoot '..\Get-AzVMAvailability.ps1')
+        [string]$ScriptPath = (Join-Path $PSScriptRoot '..\GET-AZVMLIFECYCLE.ps1')
     )
 
     $ast = Get-MainScriptAst -ScriptPath $ScriptPath
@@ -115,7 +115,7 @@ function Get-MainScriptFunctionDefinition {
         [Parameter(Mandatory)]
         [string]$FunctionName,
 
-        [string]$ScriptPath = (Join-Path $PSScriptRoot '..\Get-AzVMAvailability.ps1')
+        [string]$ScriptPath = (Join-Path $PSScriptRoot '..\GET-AZVMLIFECYCLE.ps1')
     )
 
     # Try module Private/ files first (v2.0.0+ layout)
@@ -147,7 +147,7 @@ function Import-MainScriptVariables {
         [Parameter(Mandatory)]
         [string[]]$VariableNames,
 
-        [string]$ScriptPath = (Join-Path $PSScriptRoot '..\Get-AzVMAvailability.ps1')
+        [string]$ScriptPath = (Join-Path $PSScriptRoot '..\GET-AZVMLIFECYCLE.ps1')
     )
 
     $ast = Get-MainScriptAst -ScriptPath $ScriptPath
@@ -180,7 +180,7 @@ function Get-MainScriptVariableAssignment {
         [ValidateSet('script', 'global')]
         [string]$ScopePrefix = 'script',
 
-        [string]$ScriptPath = (Join-Path $PSScriptRoot '..\Get-AzVMAvailability.ps1')
+        [string]$ScriptPath = (Join-Path $PSScriptRoot '..\GET-AZVMLIFECYCLE.ps1')
     )
 
     $ast = Get-MainScriptAst -ScriptPath $ScriptPath

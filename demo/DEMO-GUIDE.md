@@ -1,4 +1,4 @@
-# Get-AzVMAvailability — Live Demo Guide
+# GET-AZVMLIFECYCLE — Live Demo Guide
 
 **Version:** 1.14.0 | **Duration:** ~40 minutes + Q&A | **Audience:** Internal Microsoft / External Customers
 
@@ -62,7 +62,7 @@ Closing: Recap + Q&A              (~5 min)
 **The story:** First-time user, no idea what parameters exist. Just run it.
 
 ```powershell
-.\Get-AzVMAvailability.ps1
+.\GET-AZVMLIFECYCLE.ps1
 ```
 
 **What to do:**
@@ -88,7 +88,7 @@ Closing: Recap + Q&A              (~5 min)
 After the initial scan, show `-EnableDrillDown` for interactive per-SKU exploration — this is the core "zoom in" move.
 
 ```powershell
-.\Get-AzVMAvailability.ps1 -Region "eastus" -FamilyFilter "D" -EnableDrillDown
+.\GET-AZVMLIFECYCLE.ps1 -Region "eastus" -FamilyFilter "D" -EnableDrillDown
 ```
 
 **Drill-down talking points:**
@@ -107,7 +107,7 @@ After the initial scan, show `-EnableDrillDown` for interactive per-SKU explorat
 **The story:** Customer needs D-series VMs and wants to compare three regions.
 
 ```powershell
-.\Get-AzVMAvailability.ps1 -Region "eastus","westus2","centralus" -FamilyFilter "D" -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -Region "eastus","westus2","centralus" -FamilyFilter "D" -NoPrompt
 ```
 
 **Talking points:**
@@ -131,7 +131,7 @@ After the initial scan, show `-EnableDrillDown` for interactive per-SKU explorat
 **The story:** Scan all major US regions in one shot.
 
 ```powershell
-.\Get-AzVMAvailability.ps1 -RegionPreset USMajor -FamilyFilter "D","E" -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -RegionPreset USMajor -FamilyFilter "D","E" -NoPrompt
 ```
 
 **Talking points:**
@@ -156,7 +156,7 @@ After the initial scan, show `-EnableDrillDown` for interactive per-SKU explorat
 **The story:** Capacity says OK, but you've seen allocations fail anyway. Placement scores give you Azure's confidence level.
 
 ```powershell
-.\Get-AzVMAvailability.ps1 -Region "eastus","westus2","uksouth" -SkuFilter "Standard_D4s_v5","Standard_D8s_v5","Standard_D16s_v5" -ShowPlacement -DesiredCount 5 -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -Region "eastus","westus2","uksouth" -SkuFilter "Standard_D4s_v5","Standard_D8s_v5","Standard_D16s_v5" -ShowPlacement -DesiredCount 5 -NoPrompt
 ```
 
 **Talking points:**
@@ -185,7 +185,7 @@ After the initial scan, show `-EnableDrillDown` for interactive per-SKU explorat
 **The story:** Manager asks "what will this cost — and what if we use Spot?"
 
 ```powershell
-.\Get-AzVMAvailability.ps1 -Region "eastus" -FamilyFilter "D" -ShowPricing -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -Region "eastus" -FamilyFilter "D" -ShowPricing -NoPrompt
 ```
 
 **Talking points:**
@@ -202,7 +202,7 @@ After the initial scan, show `-EnableDrillDown` for interactive per-SKU explorat
 **Part B — Spot vs. On-Demand:**
 
 ```powershell
-.\Get-AzVMAvailability.ps1 -Recommend "Standard_D4s_v5" -Region "eastus" -ShowPricing -ShowSpot -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -Recommend "Standard_D4s_v5" -Region "eastus" -ShowPricing -ShowSpot -NoPrompt
 ```
 
 **Part B talking points:**
@@ -221,7 +221,7 @@ After the initial scan, show `-EnableDrillDown` for interactive per-SKU explorat
 **The story:** Customer wants to deploy Ubuntu ARM64 — which SKUs actually support it?
 
 ```powershell
-.\Get-AzVMAvailability.ps1 -Region "eastus" -ImageURN "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-arm64:latest" -EnableDrillDown -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -Region "eastus" -ImageURN "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-arm64:latest" -EnableDrillDown -NoPrompt
 ```
 
 **Talking points:**
@@ -243,7 +243,7 @@ After the initial scan, show `-EnableDrillDown` for interactive per-SKU explorat
 **Note:** If the audience isn't familiar with ARM64, you can swap to a Gen2 x64 image instead:
 ```powershell
 # Alternative: Windows Server 2022 Gen2
-.\Get-AzVMAvailability.ps1 -Region "eastus" -ImageURN "MicrosoftWindowsServer:WindowsServer:2022-datacenter-g2:latest" -EnableDrillDown -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -Region "eastus" -ImageURN "MicrosoftWindowsServer:WindowsServer:2022-datacenter-g2:latest" -EnableDrillDown -NoPrompt
 ```
 
 **Transition:**
@@ -256,7 +256,7 @@ After the initial scan, show `-EnableDrillDown` for interactive per-SKU explorat
 **The story:** Customer calls: "My Standard_D4s_v3 is capacity constrained in East US. What do I do?"
 
 ```powershell
-.\Get-AzVMAvailability.ps1 -Recommend "Standard_D4s_v3" -Region "eastus","westus2" -ShowPricing -TopN 10 -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -Recommend "Standard_D4s_v3" -Region "eastus","westus2" -ShowPricing -TopN 10 -NoPrompt
 ```
 
 **Talking points:**
@@ -277,7 +277,7 @@ After the initial scan, show `-EnableDrillDown` for interactive per-SKU explorat
 **Part B — ARM64 candidates with compatibility warnings:**
 
 ```powershell
-.\Get-AzVMAvailability.ps1 -Recommend "Standard_D4s_v3" -Region "eastus" -AllowMixedArch -ShowPricing -TopN 10 -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -Recommend "Standard_D4s_v3" -Region "eastus" -AllowMixedArch -ShowPricing -TopN 10 -NoPrompt
 ```
 
 **Part B talking points:**
@@ -297,7 +297,7 @@ After the initial scan, show `-EnableDrillDown` for interactive per-SKU explorat
 **Part A — JSON for automation:**
 
 ```powershell
-.\Get-AzVMAvailability.ps1 -Recommend "D4s_v5" -Region "eastus" -JsonOutput -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -Recommend "D4s_v5" -Region "eastus" -JsonOutput -NoPrompt
 ```
 
 **Talking points:**
@@ -312,7 +312,7 @@ After the initial scan, show `-EnableDrillDown` for interactive per-SKU explorat
 **Part B — Excel for stakeholders:**
 
 ```powershell
-.\Get-AzVMAvailability.ps1 -Region "eastus" -FamilyFilter "D" -ShowPricing -AutoExport -OutputFormat XLSX -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -Region "eastus" -FamilyFilter "D" -ShowPricing -AutoExport -OutputFormat XLSX -NoPrompt
 ```
 
 **Talking points:**
@@ -379,7 +379,7 @@ Common questions and how to answer them:
 
 ### Project Links
 
-- **Repository:** [github.com/zacharyluz/Get-AzVMAvailability](https://github.com/zacharyluz/Get-AzVMAvailability)
+- **Repository:** [github.com/bzlowrance/Get-AzVMLifecycle](https://github.com/bzlowrance/Get-AzVMLifecycle)
 - **Issues / Feature Requests:** via GitHub Issues
 - **License:** MIT
 

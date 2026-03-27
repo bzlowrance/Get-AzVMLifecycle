@@ -16,7 +16,7 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability within this project, please report it via [GitHub Security Advisories](https://github.com/ZacharyLuz/Get-AzVMAvailability/security/advisories/new).
+If you discover a security vulnerability within this project, please report it via [GitHub Security Advisories](https://github.com/bzlowrance/Get-AzVMLifecycle/security/advisories/new).
 
 **Please do not report security vulnerabilities through public GitHub issues.**
 

@@ -9,7 +9,7 @@
 
 ## Key Files & Directories
 
-- `Get-AzVMAvailability.ps1`: Main script for multi-region, multi-SKU Azure VM capacity and quota scanning.
+- `GET-AZVMLIFECYCLE.ps1`: Main script for multi-region, multi-SKU Azure VM capacity and quota scanning.
 - `dev/`: Experimental and advanced scripts, including:
   - `Azure-VM-Capacity-Planner.ps1`
   - `Azure-SKU-Scanner-Fast.ps1`
@@ -23,7 +23,7 @@
 
 - **Run Main Script:**
   ```powershell
-  .\Get-AzVMAvailability.ps1
+  .\GET-AZVMLIFECYCLE.ps1
   ```
 - **Run Tests:**
   ```powershell
@@ -196,20 +196,20 @@ Extract in this order to minimize risk:
 
 **Phase 4 — Recommend engine:** `Invoke-RecommendMode` → `Get-AzVMRecommendation`
 
-**Phase 5 — Export:** XLSX/CSV block (L4047–4442, ~395 lines) → `Export-AzVMAvailabilityReport`
+**Phase 5 — Export:** XLSX/CSV block (L4047–4442, ~395 lines) → `Export-AzVMLifecycleReport`
 
 **Phase 6 — Interactive shell:** Prompts (L2599–3060, ~461 lines) → optional
-`Invoke-AzVMAvailabilityWizard` wrapper
+`Invoke-AzVMLifecycleWizard` wrapper
 
 ### Target Module Structure (v2.0.0)
 ```
-AzVMAvailability/
-├── AzVMAvailability.psd1
-├── AzVMAvailability.psm1
+AzVMLifecycle/
+├── AzVMLifecycle.psd1
+├── AzVMLifecycle.psm1
 ├── Public/
-│   ├── Get-AzVMAvailability.ps1        # scan (emits objects)
+│   ├── GET-AZVMLIFECYCLE.ps1        # scan (emits objects)
 │   ├── Get-AzVMRecommendation.ps1      # current Invoke-RecommendMode
-│   └── Export-AzVMAvailabilityReport.ps1
+│   └── Export-AzVMLifecycleReport.ps1
 ├── Private/
 │   ├── Azure/   (endpoints, regions, pricing, retry)
 │   ├── SKU/     (family, capabilities, similarity, restrictions, filter)
@@ -217,13 +217,13 @@ AzVMAvailability/
 │   ├── Inventory/   (readiness, summary)
 │   ├── Format/  (icons, zone status, recommend output)
 │   └── Utility/ (SafeString, GeoGroup, SubscriptionContext)
-└── Get-AzVMAvailability.ps1            # thin backward-compat wrapper
+└── GET-AZVMLIFECYCLE.ps1            # thin backward-compat wrapper
 ```
 
 ### Cmdlet Naming Convention
 Az module convention uses `AzVM` (capital VM), not `AzVm`. Always follow:
-`Get-AzVMAvailability`, `Get-AzVMRecommendation`, `Export-AzVMAvailabilityReport`
-**Not:** `Get-AzVmAvailability`, `Get-AzVmRecommendation` (Copilot gets this wrong).
+`GET-AZVMLIFECYCLE`, `Get-AzVMRecommendation`, `Export-AzVMLifecycleReport`
+**Not:** `GET-AZVMLIFECYCLE`, `Get-AzVmRecommendation` (Copilot gets this wrong).
 
 ### Internal Process Artifacts
 `docs/REMEDIATION-PROGRAM.md` and `docs/REMEDIATION-TODO.md` are internal

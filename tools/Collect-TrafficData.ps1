@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Collects GitHub traffic analytics and appends to historical CSV files.
 
@@ -14,7 +14,7 @@
     Repository owner. Defaults to 'ZacharyLuz'.
 
 .PARAMETER Repo
-    Repository name. Defaults to 'Get-AzVMAvailability'.
+    Repository name. Defaults to 'GET-AZVMLIFECYCLE'.
 
 .PARAMETER OutputDir
     Directory for CSV output files. Defaults to artifacts/traffic/ in the repo root.
@@ -24,14 +24,14 @@
     # Collects all traffic metrics using defaults
 
 .EXAMPLE
-    .\tools\Collect-TrafficData.ps1 -Owner "ZacharyLuz" -Repo "Get-AzVMAvailability"
+    .\tools\Collect-TrafficData.ps1 -Owner "ZacharyLuz" -Repo "GET-AZVMLIFECYCLE"
     # Explicit owner/repo
 #>
 
 [CmdletBinding()]
 param(
     [string]$Owner = 'ZacharyLuz',
-    [string]$Repo  = 'Get-AzVMAvailability',
+    [string]$Repo  = 'GET-AZVMLIFECYCLE',
     [string]$OutputDir
 )
 

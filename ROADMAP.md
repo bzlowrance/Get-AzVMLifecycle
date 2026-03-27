@@ -153,8 +153,8 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 - [ ] **Agent Integration** - `find_alternatives` tool in AzVMAvailability-Agent
 
 ### PowerShell Module Refactoring
-- [ ] **Module Structure** - Refactor into `AzVMAvailability` module with Public/Private functions
-- [ ] **Backward-Compatible Wrapper** - Keep `Get-AzVMAvailability.ps1` as entry point
+- [ ] **Module Structure** - Refactor into `AzVMLifecycle` module with Public/Private functions
+- [ ] **Backward-Compatible Wrapper** - Keep `GET-AZVMLIFECYCLE.ps1` as entry point
 - [ ] **Shared Helpers** - Enable reuse across scanner, recommender, and Agent
 
 ### Azure Resource Graph Integration
@@ -183,8 +183,8 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 ## Version 2.0.0 (Future)
 **Theme: Module Implementation**
 
-- [ ] **Module Structure** - Refactor into `AzVMAvailability` module with Public/Private functions
-- [ ] **Backward-Compatible Wrapper** - Keep `Get-AzVMAvailability.ps1` as entry point
+- [ ] **Module Structure** - Refactor into `AzVMLifecycle` module with Public/Private functions
+- [ ] **Backward-Compatible Wrapper** - Keep `GET-AZVMLIFECYCLE.ps1` as entry point
 - [ ] **Shared Helpers** - Enable reuse across scanner, recommender, and Agent
 - [ ] **Module Manifest + Validation** - Add and validate `.psd1` manifest in CI
 - [ ] **Migration Guidance** - Document script-to-module migration path and examples
@@ -204,7 +204,7 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 ---
 
 ## Version 2.1.0 (Future)
-**Theme: MCP Server Interface** ([#28](https://github.com/ZacharyLuz/Get-AzVMAvailability/issues/28))
+**Theme: MCP Server Interface** ([#28](https://github.com/bzlowrance/Get-AzVMLifecycle/issues/28))
 
 Expose VM availability data as MCP tools so AI coding agents (Copilot, Claude, etc.) can pre-validate SKU selection during Terraform/Bicep authoring — before deployment fails.
 
@@ -216,7 +216,7 @@ Expose VM availability data as MCP tools so AI coding agents (Copilot, Claude, e
 
 ### Server Infrastructure
 - [ ] **MCP Server Process** - Node.js MCP server using `@modelcontextprotocol/sdk` that shells out to the PowerShell module
-- [ ] **PowerShell Module Bridge** - Thin adapter layer: MCP tool → `pwsh -Command "Import-Module AzVMAvailability; ..."` → JSON response
+- [ ] **PowerShell Module Bridge** - Thin adapter layer: MCP tool → `pwsh -Command "Import-Module AzVMLifecycle; ..."` → JSON response
 - [ ] **Authentication Passthrough** - Use caller's existing `Az.Accounts` session (no credential storage in MCP server)
 - [ ] **Container Option** - Dockerfile with PowerShell 7 + Az modules + MCP server for portable deployment
 
@@ -236,8 +236,8 @@ flowchart TB
     MCP -->|"pwsh -Command"| Bridge
 
     subgraph Bridge["PowerShell Module Bridge"]
-        M1["Get-AzVMAvailability -JsonOutput"]
-        M2["Get-AzVMAvailability -Recommend -JsonOutput"]
+        M1["GET-AZVMLIFECYCLE -JsonOutput"]
+        M2["GET-AZVMLIFECYCLE -Recommend -JsonOutput"]
         M3["Get-AzVMPricing"]
     end
 

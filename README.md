@@ -1,4 +1,4 @@
-# Get-AzVMAvailability
+# GET-AZVMLIFECYCLE
 
 A PowerShell tool for checking Azure VM SKU availability across regions - find where your VMs can deploy.
 
@@ -18,7 +18,7 @@ The author is a Microsoft employee; however, this is a **personal open-source pr
 
 ## Overview
 
-Get-AzVMAvailability helps you identify which Azure regions have available capacity for your VM deployments. It scans multiple regions in parallel and provides detailed insights into SKU availability, zone restrictions, quota limits, pricing, and image compatibility.
+GET-AZVMLIFECYCLE helps you identify which Azure regions have available capacity for your VM deployments. It scans multiple regions in parallel and provides detailed insights into SKU availability, zone restrictions, quota limits, pricing, and image compatibility.
 
 ## Features
 
@@ -75,8 +75,8 @@ The script automatically detects your Azure environment and uses the correct API
 
 ```powershell
 # Clone the repository
-git clone https://github.com/zacharyluz/Get-AzVMAvailability.git
-cd Get-AzVMAvailability
+git clone https://github.com/bzlowrance/Get-AzVMLifecycle.git
+cd GET-AZVMLIFECYCLE
 
 # Install required Azure modules (if needed)
 Install-Module -Name Az.Compute -Scope CurrentUser
@@ -90,25 +90,25 @@ Install-Module -Name ImportExcel -Scope CurrentUser
 
 ```powershell
 # Interactive mode - prompts for all options
-.\Get-AzVMAvailability.ps1
+.\GET-AZVMLIFECYCLE.ps1
 
 # Automated mode - uses current subscription
-.\Get-AzVMAvailability.ps1 -NoPrompt -Region "eastus","westus2"
+.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Region "eastus","westus2"
 
 # With auto-export
-.\Get-AzVMAvailability.ps1 -Region "eastus","eastus2" -AutoExport
+.\GET-AZVMLIFECYCLE.ps1 -Region "eastus","eastus2" -AutoExport
 
 # Inventory readiness check from CSV file
-.\Get-AzVMAvailability.ps1 -InventoryFile .\examples\fleet-bom.csv -Region "eastus" -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -InventoryFile .\examples\fleet-bom.csv -Region "eastus" -NoPrompt
 
 # Lifecycle analysis — find old-gen SKUs and recommend replacements
-.\Get-AzVMAvailability.ps1 -LifecycleRecommendations .\my-vms.csv -Region "eastus" -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -LifecycleRecommendations .\my-vms.csv -Region "eastus" -NoPrompt
 
 # Lifecycle analysis — from Azure portal VM export (XLSX)
-.\Get-AzVMAvailability.ps1 -LifecycleRecommendations .\AzureVirtualMachines.xlsx -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -LifecycleRecommendations .\AzureVirtualMachines.xlsx -NoPrompt
 
 # Live lifecycle scan — pull VM inventory directly from Azure
-.\Get-AzVMAvailability.ps1 -LifecycleScan -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -LifecycleScan -NoPrompt
 ```
 
 ## Usage Examples
@@ -117,20 +117,20 @@ Install-Module -Name ImportExcel -Scope CurrentUser
 
 ### Check Specific Regions
 ```powershell
-.\Get-AzVMAvailability.ps1 -Region "eastus","westus2","centralus"
+.\GET-AZVMLIFECYCLE.ps1 -Region "eastus","westus2","centralus"
 ```
 
 ### Check GPU SKU Availability
 ```powershell
 # Multi-line with backticks for readability
-.\Get-AzVMAvailability.ps1 `
+.\GET-AZVMLIFECYCLE.ps1 `
     -Region "eastus","eastus2","southcentralus" `
     -FamilyFilter "NC","ND","NV"
 ```
 
 ### Export to Specific Location
 ```powershell
-.\Get-AzVMAvailability.ps1 `
+.\GET-AZVMLIFECYCLE.ps1 `
     -ExportPath "C:\Reports" `
     -AutoExport `
     -OutputFormat XLSX
@@ -139,7 +139,7 @@ Install-Module -Name ImportExcel -Scope CurrentUser
 ### Check Specific SKUs with Pricing
 ```powershell
 # Pricing auto-detects negotiated rates (EA/MCA/CSP), falls back to retail
-.\Get-AzVMAvailability.ps1 `
+.\GET-AZVMLIFECYCLE.ps1 `
     -Region "eastus","westus2" `
     -SkuFilter "Standard_D*_v5" `
     -ShowPricing
@@ -148,7 +148,7 @@ Install-Module -Name ImportExcel -Scope CurrentUser
 ### Full Parameter Example
 ```powershell
 # Multi-line format with backticks for readability
-.\Get-AzVMAvailability.ps1 `
+.\GET-AZVMLIFECYCLE.ps1 `
     -SubscriptionId "your-subscription-id" `
     -Region "eastus","westus2","centralus" `
     -ExportPath "C:\Reports" `
@@ -235,7 +235,7 @@ Validate whether your entire VM deployment can be provisioned in a target region
 
 **Option A — Generate a template** (easiest):
 ```powershell
-.\Get-AzVMAvailability.ps1 -GenerateInventoryTemplate
+.\GET-AZVMLIFECYCLE.ps1 -GenerateInventoryTemplate
 # Creates inventory-template.csv and inventory-template.json in current directory
 # Edit with your actual SKUs and quantities
 ```
@@ -262,7 +262,7 @@ Standard_D8s_v5,5
 ### Step 2: Run the scan
 
 ```powershell
-.\Get-AzVMAvailability.ps1 -InventoryFile .\inventory-template.csv -Region "eastus" -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -InventoryFile .\inventory-template.csv -Region "eastus" -NoPrompt
 ```
 
 ### Step 3: Read the verdict
@@ -299,7 +299,7 @@ Standard_F4s_v2
 > **Column names are flexible:** `SKU`, `Size`, or `VmSize` (falls back to `Name`) for the SKU column; `Region`, `Location`, or `AzureRegion` for region; `Qty`, `Quantity`, or `Count` for quantity.
 
 ```powershell
-.\Get-AzVMAvailability.ps1 -LifecycleRecommendations .\my-vms.csv -Region "eastus" -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -LifecycleRecommendations .\my-vms.csv -Region "eastus" -NoPrompt
 ```
 
 ### Option 2: From an Azure portal export (XLSX)
@@ -307,7 +307,7 @@ Standard_F4s_v2
 Export your VM list directly from the Azure portal (Virtual Machines blade → Export to CSV/Excel) and pass the XLSX file with no reformatting:
 
 ```powershell
-.\Get-AzVMAvailability.ps1 -LifecycleRecommendations .\AzureVirtualMachines.xlsx -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -LifecycleRecommendations .\AzureVirtualMachines.xlsx -NoPrompt
 ```
 
 The parser automatically maps the `SIZE` column to SKU and `LOCATION` to Region, converts display names (e.g., "West US" → `westus`, "USGov Virginia" → `usgovvirginia`), and aggregates one-VM-per-row into SKU+Region quantities. Requires the `ImportExcel` module.
@@ -318,25 +318,25 @@ Pull your VM inventory directly from Azure using Resource Graph:
 
 ```powershell
 # Scan current subscription
-.\Get-AzVMAvailability.ps1 -LifecycleScan -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -LifecycleScan -NoPrompt
 
 # Scan specific subscriptions
-.\Get-AzVMAvailability.ps1 -LifecycleScan -SubscriptionId "sub-id-1","sub-id-2" -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -LifecycleScan -SubscriptionId "sub-id-1","sub-id-2" -NoPrompt
 
 # Scan an entire management group (all child subscriptions)
-.\Get-AzVMAvailability.ps1 -LifecycleScan -ManagementGroup "mg-production" -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -LifecycleScan -ManagementGroup "mg-production" -NoPrompt
 
 # Scan specific resource groups within a subscription
-.\Get-AzVMAvailability.ps1 -LifecycleScan -SubscriptionId "sub-id" -ResourceGroup "rg-app","rg-data" -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -LifecycleScan -SubscriptionId "sub-id" -ResourceGroup "rg-app","rg-data" -NoPrompt
 
 # Scan only VMs tagged with Environment=prod
-.\Get-AzVMAvailability.ps1 -LifecycleScan -Tag @{Environment='prod'} -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -LifecycleScan -Tag @{Environment='prod'} -NoPrompt
 
 # Combine tag filter with subscription and resource group
-.\Get-AzVMAvailability.ps1 -LifecycleScan -SubscriptionId "sub-id" -Tag @{CostCenter='12345'; Environment='prod'} -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -LifecycleScan -SubscriptionId "sub-id" -Tag @{CostCenter='12345'; Environment='prod'} -NoPrompt
 
 # Scan all VMs that have a "Department" tag (any value)
-.\Get-AzVMAvailability.ps1 -LifecycleScan -Tag @{Department='*'} -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -LifecycleScan -Tag @{Department='*'} -NoPrompt
 ```
 
 Requires the `Az.ResourceGraph` module (`Install-Module Az.ResourceGraph -Scope CurrentUser`).
@@ -371,20 +371,20 @@ By default, lifecycle reports include only PAYG (pay-as-you-go) cost columns whe
 
 ```powershell
 # PAYG pricing only (Price Diff, Total, 1-Year Cost, 3-Year Cost)
-.\Get-AzVMAvailability.ps1 -LifecycleRecommendations .\my-vms.csv -ShowPricing -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -LifecycleRecommendations .\my-vms.csv -ShowPricing -NoPrompt
 ```
 
 To include Savings Plan (SP) and Reserved Instance (RI) savings columns, add `-RateOptimization`:
 
 ```powershell
 # Full pricing: PAYG + SP/RI savings vs PAYG fleet total
-.\Get-AzVMAvailability.ps1 -LifecycleRecommendations .\my-vms.csv -ShowPricing -RateOptimization -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -LifecycleRecommendations .\my-vms.csv -ShowPricing -RateOptimization -NoPrompt
 
 # Live scan with rate optimization and auto-export to XLSX
-.\Get-AzVMAvailability.ps1 -LifecycleScan -ShowPricing -RateOptimization -AutoExport -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -LifecycleScan -ShowPricing -RateOptimization -AutoExport -NoPrompt
 
 # Azure portal export with full pricing comparison
-.\Get-AzVMAvailability.ps1 -LifecycleRecommendations .\AzureVirtualMachines.xlsx -ShowPricing -RateOptimization -NoQuota -AutoExport
+.\GET-AZVMLIFECYCLE.ps1 -LifecycleRecommendations .\AzureVirtualMachines.xlsx -ShowPricing -RateOptimization -NoQuota -AutoExport
 ```
 
 With `-RateOptimization`, the XLSX report adds 4 savings columns: `SP 1-Year Savings`, `SP 3-Year Savings`, `RI 1-Year Savings`, `RI 3-Year Savings` — showing how much the fleet saves compared to PAYG by committing to each term.
@@ -417,22 +417,22 @@ Use `-RegionPreset` for quick access to common region sets:
 
 ```powershell
 # Quick US East/West scan
-.\Get-AzVMAvailability.ps1 -RegionPreset USEastWest -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -RegionPreset USEastWest -NoPrompt
 
 # Top 5 US regions
-.\Get-AzVMAvailability.ps1 -RegionPreset USMajor -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -RegionPreset USMajor -NoPrompt
 
 # DR planning for Azure Site Recovery
-.\Get-AzVMAvailability.ps1 -RegionPreset ASR-EastWest -FamilyFilter "D","E" -ShowPricing
+.\GET-AZVMLIFECYCLE.ps1 -RegionPreset ASR-EastWest -FamilyFilter "D","E" -ShowPricing
 
 # European regions with export
-.\Get-AzVMAvailability.ps1 -RegionPreset Europe -AutoExport
+.\GET-AZVMLIFECYCLE.ps1 -RegionPreset Europe -AutoExport
 
 # Azure Government (environment auto-detected)
-.\Get-AzVMAvailability.ps1 -RegionPreset USGov -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -RegionPreset USGov -NoPrompt
 
 # Azure China / Mooncake (environment auto-detected)
-.\Get-AzVMAvailability.ps1 -RegionPreset China -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -RegionPreset China -NoPrompt
 ```
 
 > **Note**: Maximum 5 regions per scan for optimal performance and readability. Presets are limited accordingly. Lifecycle modes (`-LifecycleRecommendations`, `-LifecycleScan`) are exempt — all deployed regions are scanned automatically.
@@ -455,7 +455,7 @@ The script can verify which VM SKUs are compatible with specific Azure Marketpla
 Run the script **without** `-NoPrompt` and **without** `-ImageURN`:
 
 ```powershell
-.\Get-AzVMAvailability.ps1 -Region eastus -EnableDrillDown
+.\GET-AZVMLIFECYCLE.ps1 -Region eastus -EnableDrillDown
 ```
 
 When prompted **"Check SKU compatibility with a specific VM image?"**, answer `y`, then you'll see options:
@@ -493,13 +493,13 @@ If you already know the image URN, pass it directly:
 
 ```powershell
 # Check ARM64 compatibility for Ubuntu ARM64 image
-.\Get-AzVMAvailability.ps1 `
+.\GET-AZVMLIFECYCLE.ps1 `
     -Region "eastus","westus2" `
     -ImageURN "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-arm64:latest" `
     -SkuFilter "Standard_D*ps*"
 
 # Check Gen2 compatibility for Windows Server 2022
-.\Get-AzVMAvailability.ps1 `
+.\GET-AZVMLIFECYCLE.ps1 `
     -Region "eastus" `
     -ImageURN "MicrosoftWindowsServer:WindowsServer:2022-datacenter-g2:latest" `
     -EnableDrillDown
@@ -511,7 +511,7 @@ Use `-SkuFilter` with wildcards to find specific VM types compatible with your i
 
 ```powershell
 # Find all ARM64-compatible D-series SKUs for ARM64 Ubuntu
-.\Get-AzVMAvailability.ps1 `
+.\GET-AZVMLIFECYCLE.ps1 `
     -Region "eastus" `
     -SkuFilter "Standard_D*ps*" `
     -ImageURN "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-arm64:latest"
@@ -565,7 +565,7 @@ SKUs that are available but **incompatible** with your image are shown in dark y
 ### Console Output (with Pricing)
 ```
 ====================================================================================
-GET-AZVMAVAILABILITY v1.14.0
+GET-AZVMLIFECYCLE v1.14.0
 ====================================================================================
 SKU Filter: Standard_D2s_v5 | Pricing: Enabled
 
@@ -620,17 +620,17 @@ With `-ShowPricing`, the script automatically detects the best pricing source:
 
 ## AI Agent Integration (Copilot Skill)
 
-This repo includes a **Copilot skill** that teaches AI coding agents (VS Code Copilot, Claude, Copilot CLI) how to invoke Get-AzVMAvailability for live capacity scanning. The skill provides routing logic, parameter mapping, and JSON output schema documentation so agents can translate natural language requests into the correct CLI invocations.
+This repo includes a **Copilot skill** that teaches AI coding agents (VS Code Copilot, Claude, Copilot CLI) how to invoke GET-AZVMLIFECYCLE for live capacity scanning. The skill provides routing logic, parameter mapping, and JSON output schema documentation so agents can translate natural language requests into the correct CLI invocations.
 
-**Skill file:** [.github/skills/azure-vm-availability/SKILL.md](.github/skills/azure-vm-availability/SKILL.md)
+**Skill file:** [.github/skills/azure-vm-lifecycle/SKILL.md](.github/skills/azure-vm-lifecycle/SKILL.md)
 
 ### What the skill enables
 
 | User says | Agent runs |
 |-----------|-----------|
-| "Where can I deploy NC-series GPUs?" | `.\Get-AzVMAvailability.ps1 -NoPrompt -FamilyFilter "NC","ND","NV" -RegionPreset USMajor -JsonOutput` |
-| "E64pds_v6 is constrained, find alternatives" | `.\Get-AzVMAvailability.ps1 -NoPrompt -Recommend "Standard_E64pds_v6" -Region "eastus","westus2" -JsonOutput` |
-| "Check placement scores for D4s_v5" | `.\Get-AzVMAvailability.ps1 -NoPrompt -Recommend "Standard_D4s_v5" -Region "eastus" -ShowPlacement -JsonOutput` |
+| "Where can I deploy NC-series GPUs?" | `.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -FamilyFilter "NC","ND","NV" -RegionPreset USMajor -JsonOutput` |
+| "E64pds_v6 is constrained, find alternatives" | `.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Recommend "Standard_E64pds_v6" -Region "eastus","westus2" -JsonOutput` |
+| "Check placement scores for D4s_v5" | `.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Recommend "Standard_D4s_v5" -Region "eastus" -ShowPlacement -JsonOutput` |
 
 ### Installing the skill for VS Code Copilot
 
@@ -640,10 +640,10 @@ To use it in **other repositories**, copy the skill to your local skills directo
 
 ```powershell
 # Windows
-Copy-Item -Recurse ".github\skills\azure-vm-availability" "$env:USERPROFILE\.agents\skills\azure-vm-availability"
+Copy-Item -Recurse ".github\skills\azure-vm-lifecycle" "$env:USERPROFILE\.agents\skills\azure-vm-lifecycle"
 
 # macOS/Linux
-cp -r .github/skills/azure-vm-availability ~/.agents/skills/azure-vm-availability
+cp -r .github/skills/azure-vm-lifecycle ~/.agents/skills/azure-vm-lifecycle
 ```
 
 ## Contributing
@@ -684,7 +684,7 @@ See [CHANGELOG.md](CHANGELOG.md) for version history.
 If Windows warns that the script came from the internet, unblock it once:
 
 ```powershell
-Unblock-File .\Get-AzVMAvailability.ps1
+Unblock-File .\GET-AZVMLIFECYCLE.ps1
 ```
 
 ### `AzureEndpoints` property error at startup
@@ -692,10 +692,10 @@ Unblock-File .\Get-AzVMAvailability.ps1
 If you see an error like `The property 'AzureEndpoints' cannot be found on this object`, you are likely running an older script copy.
 
 ```powershell
-Select-String -Path .\Get-AzVMAvailability.ps1 -Pattern 'AzureEndpoints\s*=\s*\$null'
+Select-String -Path .\GET-AZVMLIFECYCLE.ps1 -Pattern 'AzureEndpoints\s*=\s*\$null'
 ```
 
-No match indicates the file is stale. Download the latest `Get-AzVMAvailability.ps1` from the repository and re-run.
+No match indicates the file is stale. Download the latest `GET-AZVMLIFECYCLE.ps1` from the repository and re-run.
 
 ### Running in Windows PowerShell 5.1
 
@@ -704,6 +704,6 @@ PowerShell 5.1 is not supported. The script now warns and exits early if launche
 Use PowerShell 7+ (`pwsh`):
 
 ```powershell
-pwsh -File .\Get-AzVMAvailability.ps1
+pwsh -File .\GET-AZVMLIFECYCLE.ps1
 ```
 

@@ -1,6 +1,6 @@
 ---
-name: azure-vm-availability
-description: "Scan Azure regions for real-time VM SKU availability, capacity status, quota, pricing, and image compatibility using Get-AzVMAvailability. USE FOR: where can I deploy VMs, check VM capacity, GPU availability, find available regions, VM SKU restricted, capacity constrained, find alternative SKU, recommend replacement VM, compare regions for VMs, DR region planning, check zone availability, is this SKU available, scan regions. DO NOT USE FOR: general VM size recommendations without Azure login (use azure-compute), quota management via CLI (use azure-quotas), deploying VMs (use azure-prepare)."
+name: azure-vm-lifecycle
+description: "Scan Azure regions for real-time VM SKU availability, capacity status, quota, pricing, and image compatibility using GET-AZVMLIFECYCLE. USE FOR: where can I deploy VMs, check VM capacity, GPU availability, find available regions, VM SKU restricted, capacity constrained, find alternative SKU, recommend replacement VM, compare regions for VMs, DR region planning, check zone availability, is this SKU available, scan regions. DO NOT USE FOR: general VM size recommendations without Azure login (use azure-compute), quota management via CLI (use azure-quotas), deploying VMs (use azure-prepare)."
 license: MIT
 metadata:
   author: Zachary Luz
@@ -10,7 +10,7 @@ metadata:
 # Azure VM Availability — Live Capacity Scanner
 
 > **AUTHORITATIVE GUIDANCE** — This skill teaches you when and how to invoke
-> the `Get-AzVMAvailability.ps1` script via terminal for real-time Azure VM
+> the `GET-AZVMLIFECYCLE.ps1` script via terminal for real-time Azure VM
 > capacity scanning. The script is the execution engine; this skill is the
 > routing layer.
 
@@ -35,7 +35,7 @@ Invoke this skill when the user wants to:
 | Check/manage quota limits via `az quota` CLI | `azure-quotas` |
 | Deploy VMs or infrastructure | `azure-prepare` → `azure-validate` → `azure-deploy` |
 | Diagnose portal-vs-programmatic quota mismatch | `azure-quota-subfamily-mismatch-diagnosis` |
-| Verify local script is up to date | `azvmavailability-release-verification-workflow` |
+| Verify local script is up to date | `AzVMLifecycle-release-verification-workflow` |
 
 ---
 
@@ -48,9 +48,9 @@ Before running, verify these requirements. **Stop and help the user fix any miss
 ```powershell
 # Check if the script exists in common locations
 $paths = @(
-    "$env:USERPROFILE\Get-AzVMAvailability\Get-AzVMAvailability.ps1",
-    "$env:USERPROFILE\source\repos\Get-AzVMAvailability\Get-AzVMAvailability.ps1",
-    "$env:USERPROFILE\OneDrive - Microsoft\Get-AzVMAvailability\Get-AzVMAvailability.ps1"
+    "$env:USERPROFILE\GET-AZVMLIFECYCLE\GET-AZVMLIFECYCLE.ps1",
+    "$env:USERPROFILE\source\repos\GET-AZVMLIFECYCLE\GET-AZVMLIFECYCLE.ps1",
+    "$env:USERPROFILE\OneDrive - Microsoft\GET-AZVMLIFECYCLE\GET-AZVMLIFECYCLE.ps1"
 )
 $found = $paths | Where-Object { Test-Path $_ } | Select-Object -First 1
 if ($found) { Write-Host "Found: $found" } else { Write-Host "NOT FOUND" }
@@ -58,8 +58,8 @@ if ($found) { Write-Host "Found: $found" } else { Write-Host "NOT FOUND" }
 
 **If not found**, tell the user:
 ```powershell
-git clone https://github.com/ZacharyLuz/Get-AzVMAvailability.git
-cd Get-AzVMAvailability
+git clone https://github.com/bzlowrance/Get-AzVMLifecycle.git
+cd GET-AZVMLIFECYCLE
 ```
 
 ### 2. PowerShell 7+ Required
@@ -121,13 +121,13 @@ User request
 
 ```powershell
 # Basic scan — specific SKU across regions
-.\Get-AzVMAvailability.ps1 -NoPrompt -Region "eastus","westus2","centralus" -SkuFilter "Standard_D4s_v5" -JsonOutput
+.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Region "eastus","westus2","centralus" -SkuFilter "Standard_D4s_v5" -JsonOutput
 
 # Scan a VM family across US regions
-.\Get-AzVMAvailability.ps1 -NoPrompt -RegionPreset USMajor -FamilyFilter "D","E" -JsonOutput
+.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -RegionPreset USMajor -FamilyFilter "D","E" -JsonOutput
 
 # GPU availability scan
-.\Get-AzVMAvailability.ps1 -NoPrompt -Region "eastus","southcentralus","westus2" -FamilyFilter "NC","ND","NV" -JsonOutput
+.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Region "eastus","southcentralus","westus2" -FamilyFilter "NC","ND","NV" -JsonOutput
 ```
 
 **Always use `-NoPrompt -JsonOutput`** when running from Copilot to get structured output.
@@ -138,40 +138,40 @@ User request
 
 ```powershell
 # Find alternatives for a constrained SKU
-.\Get-AzVMAvailability.ps1 -NoPrompt -Recommend "Standard_E64pds_v6" -Region "eastus","westus2","centralus" -JsonOutput
+.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Recommend "Standard_E64pds_v6" -Region "eastus","westus2","centralus" -JsonOutput
 
 # Show more results with lower threshold
-.\Get-AzVMAvailability.ps1 -NoPrompt -Recommend "Standard_NC24ads_A100_v4" -RegionPreset USMajor -TopN 10 -MinScore 0 -JsonOutput
+.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Recommend "Standard_NC24ads_A100_v4" -RegionPreset USMajor -TopN 10 -MinScore 0 -JsonOutput
 
 # Filter by minimum specs
-.\Get-AzVMAvailability.ps1 -NoPrompt -Recommend "Standard_D8s_v5" -Region "eastus" -MinvCPU 8 -MinMemoryGB 32 -JsonOutput
+.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Recommend "Standard_D8s_v5" -Region "eastus" -MinvCPU 8 -MinMemoryGB 32 -JsonOutput
 ```
 
 ### Workflow 3: Scan with Pricing
 
 ```powershell
 # Auto-detects negotiated EA/MCA/CSP rates, falls back to retail
-.\Get-AzVMAvailability.ps1 -NoPrompt -Region "eastus","westus2" -FamilyFilter "D" -ShowPricing -JsonOutput
+.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Region "eastus","westus2" -FamilyFilter "D" -ShowPricing -JsonOutput
 ```
 
 ### Workflow 4: Image Compatibility Check
 
 ```powershell
 # Verify ARM64 image compatibility
-.\Get-AzVMAvailability.ps1 -NoPrompt -Region "eastus" -SkuFilter "Standard_D*ps*" -ImageURN "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-arm64:latest" -JsonOutput
+.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Region "eastus" -SkuFilter "Standard_D*ps*" -ImageURN "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-arm64:latest" -JsonOutput
 
 # Check Gen2 Windows image
-.\Get-AzVMAvailability.ps1 -NoPrompt -Region "eastus","westus2" -ImageURN "MicrosoftWindowsServer:WindowsServer:2022-datacenter-g2:latest" -JsonOutput
+.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Region "eastus","westus2" -ImageURN "MicrosoftWindowsServer:WindowsServer:2022-datacenter-g2:latest" -JsonOutput
 ```
 
 ### Workflow 5: DR Region Planning
 
 ```powershell
 # Azure Site Recovery pair
-.\Get-AzVMAvailability.ps1 -NoPrompt -RegionPreset ASR-EastWest -FamilyFilter "D","E" -ShowPricing -JsonOutput
+.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -RegionPreset ASR-EastWest -FamilyFilter "D","E" -ShowPricing -JsonOutput
 
 # Custom DR pair
-.\Get-AzVMAvailability.ps1 -NoPrompt -Region "eastus","westus2" -ShowPricing -JsonOutput
+.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Region "eastus","westus2" -ShowPricing -JsonOutput
 ```
 
 ### Workflow 6: Placement Scores and Spot Pricing
@@ -180,13 +180,13 @@ User request
 
 ```powershell
 # Recommend with placement scores (shows High/Medium/Low allocation likelihood)
-.\Get-AzVMAvailability.ps1 -NoPrompt -Recommend "Standard_D4s_v5" -Region "eastus","westus2" -ShowPlacement -JsonOutput
+.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Recommend "Standard_D4s_v5" -Region "eastus","westus2" -ShowPlacement -JsonOutput
 
 # Full enrichment: pricing + placement + spot pricing
-.\Get-AzVMAvailability.ps1 -NoPrompt -Recommend "Standard_D4s_v5" -Region "eastus" -ShowPricing -ShowPlacement -ShowSpot -JsonOutput
+.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Recommend "Standard_D4s_v5" -Region "eastus" -ShowPricing -ShowPlacement -ShowSpot -JsonOutput
 
 # Placement scores in filtered scan mode (max 5 SKUs)
-.\Get-AzVMAvailability.ps1 -NoPrompt -Region "eastus" -SkuFilter "Standard_D4s_v5" -ShowPlacement -JsonOutput
+.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Region "eastus" -SkuFilter "Standard_D4s_v5" -ShowPlacement -JsonOutput
 ```
 
 **Notes:**
@@ -200,21 +200,21 @@ User request
 
 ```powershell
 # Step 1: Generate template files (no Azure login needed)
-.\Get-AzVMAvailability.ps1 -GenerateFleetTemplate
+.\GET-AZVMLIFECYCLE.ps1 -GenerateFleetTemplate
 # → Creates fleet-template.csv and fleet-template.json in current directory
 # → Edit with your actual SKUs and quantities
 
 # Step 2: Run the scan with your fleet file
-.\Get-AzVMAvailability.ps1 -FleetFile .\fleet-template.csv -Region "eastus" -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -FleetFile .\fleet-template.csv -Region "eastus" -NoPrompt
 
 # Alternative: CSV file (export from Excel, paste from table)
-.\Get-AzVMAvailability.ps1 -FleetFile .\fleet.csv -Region "eastus" -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -FleetFile .\fleet.csv -Region "eastus" -NoPrompt
 
 # Alternative: Inline hashtable (for scripting/automation)
-.\Get-AzVMAvailability.ps1 -Fleet @{'Standard_D2s_v5'=17; 'Standard_D4s_v5'=4; 'Standard_D8s_v5'=5} -Region "eastus" -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -Fleet @{'Standard_D2s_v5'=17; 'Standard_D4s_v5'=4; 'Standard_D8s_v5'=5} -Region "eastus" -NoPrompt
 
 # Alternative: JSON file input (for automation pipelines)
-.\Get-AzVMAvailability.ps1 -FleetFile .\fleet.json -Region "eastus" -NoPrompt -JsonOutput
+.\GET-AZVMLIFECYCLE.ps1 -FleetFile .\fleet.json -Region "eastus" -NoPrompt -JsonOutput
 ```
 
 **CSV file format** (save as `fleet.csv`):
@@ -250,10 +250,10 @@ Standard_D16ls_v6,1
 
 ```powershell
 # Auto-export to XLSX (styled, color-coded)
-.\Get-AzVMAvailability.ps1 -NoPrompt -RegionPreset USMajor -AutoExport -OutputFormat XLSX
+.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -RegionPreset USMajor -AutoExport -OutputFormat XLSX
 
 # Export to specific path
-.\Get-AzVMAvailability.ps1 -NoPrompt -Region "eastus","westus2" -ExportPath "C:\Reports" -AutoExport
+.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Region "eastus","westus2" -ExportPath "C:\Reports" -AutoExport
 ```
 
 ---
@@ -417,8 +417,8 @@ When presenting results to the user:
 
 | Issue | Solution |
 |-------|----------|
-| Script not found | `git clone https://github.com/ZacharyLuz/Get-AzVMAvailability.git` |
-| PowerShell 5.1 error | Use `pwsh -File .\Get-AzVMAvailability.ps1` |
+| Script not found | `git clone https://github.com/bzlowrance/Get-AzVMLifecycle.git` |
+| PowerShell 5.1 error | Use `pwsh -File .\GET-AZVMLIFECYCLE.ps1` |
 | No Azure context | Run `Connect-AzAccount` first |
 | `AzureEndpoints` error | Script is stale — pull latest from repo |
 | Region validation fails | Add `-SkipRegionValidation` as last resort |

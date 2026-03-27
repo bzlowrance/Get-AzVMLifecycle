@@ -36,10 +36,10 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
 
-          $scriptText = Get-Content "./Get-AzVMAvailability.ps1" -Raw
+          $scriptText = Get-Content "./GET-AZVMLIFECYCLE.ps1" -Raw
           $match = [regex]::Match($scriptText, '(?m)^\$ScriptVersion\s*=\s*"([^"]+)"')
           if (-not $match.Success) {
-            throw "Could not parse ScriptVersion from Get-AzVMAvailability.ps1"
+            throw "Could not parse ScriptVersion from GET-AZVMLIFECYCLE.ps1"
           }
 
           $version = $match.Groups[1].Value
@@ -81,13 +81,13 @@ jobs:
               $commitsSinceTag = git rev-list --count "$tag..$headSha"
 
               # Check if the main script actually changed since the tag
-              $scriptChanged = [bool](git diff --name-only "$tag..$headSha" -- 'Get-AzVMAvailability.ps1')
+              $scriptChanged = [bool](git diff --name-only "$tag..$headSha" -- 'GET-AZVMLIFECYCLE.ps1')
               if ($scriptChanged) {
                 $msg = "Version stagnation detected.`n`n"
-                $msg += "ScriptVersion in Get-AzVMAvailability.ps1 is $version but git tag $tag already exists (from commit $shortTag).`n"
-                $msg += "HEAD ($shortHead) is $commitsSinceTag commit(s) ahead and Get-AzVMAvailability.ps1 has changes since that tag.`n`n"
+                $msg += "ScriptVersion in GET-AZVMLIFECYCLE.ps1 is $version but git tag $tag already exists (from commit $shortTag).`n"
+                $msg += "HEAD ($shortHead) is $commitsSinceTag commit(s) ahead and GET-AZVMLIFECYCLE.ps1 has changes since that tag.`n`n"
                 $msg += "To resolve this:`n"
-                $msg += "- In Get-AzVMAvailability.ps1, bump the ScriptVersion value to a new version.`n"
+                $msg += "- In GET-AZVMLIFECYCLE.ps1, bump the ScriptVersion value to a new version.`n"
                 $msg += "- Add a corresponding entry for that version to CHANGELOG.md.`n"
                 $msg += "- Commit the changes, push to main, and re-run this workflow."
                 throw $msg

@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    Get-AzVMAvailability - Comprehensive SKU availability and capacity scanner.
+    GET-AZVMLIFECYCLE - Comprehensive SKU availability and capacity scanner.
 
 .DESCRIPTION
     Scans Azure regions for VM SKU availability and capacity status to help plan deployments.
@@ -30,7 +30,7 @@
 .PARAMETER ExportPath
     Directory path for CSV/XLSX export. If not specified with -AutoExport, uses:
     - Cloud Shell: /home/system
-    - Local: C:\Temp\AzVMAvailability
+    - Local: C:\Temp\AzVMLifecycle
 
 .PARAMETER AutoExport
     Automatically export results without prompting.
@@ -122,12 +122,12 @@
     scans against invalid regions.
 
 .NOTES
-    Name:           Get-AzVMAvailability
+    Name:           GET-AZVMLIFECYCLE
     Author:         Zachary Luz
     Created:        2026-01-21
     Version:        1.14.0
     License:        MIT
-    Repository:     https://github.com/zacharyluz/Get-AzVMAvailability
+    Repository:     https://github.com/bzlowrance/Get-AzVMLifecycle
 
     Requirements:   Az.Compute, Az.Resources modules
                     PowerShell 7+ (required)
@@ -145,82 +145,82 @@
     performance of the sample scripts and documentation remains with you.
 
 .EXAMPLE
-    .\Get-AzVMAvailability.ps1
+    .\GET-AZVMLIFECYCLE.ps1
     Run interactively with prompts for all options.
 
 .EXAMPLE
-    .\Get-AzVMAvailability.ps1 -Region "eastus","westus2" -AutoExport
+    .\GET-AZVMLIFECYCLE.ps1 -Region "eastus","westus2" -AutoExport
     Scan specified regions with current subscription, auto-export results.
 
 .EXAMPLE
-    .\Get-AzVMAvailability.ps1 -NoPrompt -Region "eastus","centralus","westus2"
+    .\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Region "eastus","centralus","westus2"
     Fully automated scan of three regions using current subscription context.
 
 .EXAMPLE
-    .\Get-AzVMAvailability.ps1 -EnableDrillDown -FamilyFilter "D","E","M"
+    .\GET-AZVMLIFECYCLE.ps1 -EnableDrillDown -FamilyFilter "D","E","M"
     Interactive mode focused on D, E, and M series families.
 
 .EXAMPLE
-    .\Get-AzVMAvailability.ps1 -SkuFilter "Standard_D2s_v3","Standard_E4s_v5" -Region "eastus"
+    .\GET-AZVMLIFECYCLE.ps1 -SkuFilter "Standard_D2s_v3","Standard_E4s_v5" -Region "eastus"
     Filter to show only specific SKUs in eastus region.
 
 .EXAMPLE
-    .\Get-AzVMAvailability.ps1 -SkuFilter "Standard_D*_v5" -Region "eastus","westus2"
+    .\GET-AZVMLIFECYCLE.ps1 -SkuFilter "Standard_D*_v5" -Region "eastus","westus2"
     Use wildcard to filter all D-series v5 SKUs across multiple regions.
 
 .EXAMPLE
-    .\Get-AzVMAvailability.ps1 -ShowPricing -Region "eastus"
+    .\GET-AZVMLIFECYCLE.ps1 -ShowPricing -Region "eastus"
     Include estimated hourly pricing for VM SKUs in eastus.
 
 .EXAMPLE
-    .\Get-AzVMAvailability.ps1 -ImageURN "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest" -Region "eastus"
+    .\GET-AZVMLIFECYCLE.ps1 -ImageURN "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest" -Region "eastus"
     Check SKU compatibility with Ubuntu 22.04 Gen2 image.
 
 .EXAMPLE
-    .\Get-AzVMAvailability.ps1 -ImageURN "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-arm64:latest" -SkuFilter "Standard_D*ps*"
+    .\GET-AZVMLIFECYCLE.ps1 -ImageURN "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-arm64:latest" -SkuFilter "Standard_D*ps*"
     Find ARM64-compatible SKUs for Ubuntu ARM64 image.
 
 .EXAMPLE
-    .\Get-AzVMAvailability.ps1 -NoPrompt -ShowPricing -Region "eastus","westus2"
+    .\GET-AZVMLIFECYCLE.ps1 -NoPrompt -ShowPricing -Region "eastus","westus2"
     Automated scan with pricing enabled, no interactive prompts.
 
 .EXAMPLE
-    .\Get-AzVMAvailability.ps1 -RegionPreset USEastWest -NoPrompt
+    .\GET-AZVMLIFECYCLE.ps1 -RegionPreset USEastWest -NoPrompt
     Scan US East/West regions (eastus, eastus2, westus, westus2) using a preset.
 
 .EXAMPLE
-    .\Get-AzVMAvailability.ps1 -RegionPreset ASR-EastWest -FamilyFilter "D","E" -ShowPricing
+    .\GET-AZVMLIFECYCLE.ps1 -RegionPreset ASR-EastWest -FamilyFilter "D","E" -ShowPricing
     Check DR region pair for Azure Site Recovery planning with pricing.
 
 .EXAMPLE
-    .\Get-AzVMAvailability.ps1 -RegionPreset Europe -NoPrompt -AutoExport
+    .\GET-AZVMLIFECYCLE.ps1 -RegionPreset Europe -NoPrompt -AutoExport
     Scan all major European regions with auto-export.
 
 .EXAMPLE
-    .\Get-AzVMAvailability.ps1 -RegionPreset USGov -NoPrompt
+    .\GET-AZVMLIFECYCLE.ps1 -RegionPreset USGov -NoPrompt
     Scan Azure Government regions (auto-sets environment to AzureUSGovernment).
 
 .EXAMPLE
-    .\Get-AzVMAvailability.ps1 -Recommend "Standard_E64pds_v6" -Region "eastus","westus2","centralus"
+    .\GET-AZVMLIFECYCLE.ps1 -Recommend "Standard_E64pds_v6" -Region "eastus","westus2","centralus"
     Find alternatives to E64pds_v6 across three regions, ranked by similarity.
 
 .EXAMPLE
-    .\Get-AzVMAvailability.ps1 -Recommend "Standard_E64pds_v6" -RegionPreset USMajor -MinScore 0
+    .\GET-AZVMLIFECYCLE.ps1 -Recommend "Standard_E64pds_v6" -RegionPreset USMajor -MinScore 0
     Show all candidates regardless of similarity score (useful when capacity is constrained).
 
 .EXAMPLE
-    .\Get-AzVMAvailability.ps1 -Recommend "E64pds_v6" -RegionPreset USMajor -TopN 10
+    .\GET-AZVMLIFECYCLE.ps1 -Recommend "E64pds_v6" -RegionPreset USMajor -TopN 10
     Find top 10 alternatives across major US regions (Standard_ prefix auto-added).
 
 .EXAMPLE
-    .\Get-AzVMAvailability.ps1 -Recommend "Standard_D4s_v5" -Region "eastus" -JsonOutput -NoPrompt
+    .\GET-AZVMLIFECYCLE.ps1 -Recommend "Standard_D4s_v5" -Region "eastus" -JsonOutput -NoPrompt
     Emit structured JSON instead of console tables. Designed for the AzVMAvailability-Agent
     (https://github.com/ZacharyLuz/AzVMAvailability-Agent) which parses this output to
     provide conversational VM recommendations. Also useful for piping into other tools
     or storing scan results programmatically.
 
 .EXAMPLE
-    .\Get-AzVMAvailability.ps1 -InventoryFile .\inventory.csv -Region "eastus" -NoPrompt
+    .\GET-AZVMLIFECYCLE.ps1 -InventoryFile .\inventory.csv -Region "eastus" -NoPrompt
     Load an inventory BOM from CSV file. The CSV needs SKU and Qty columns:
     SKU,Qty
     Standard_D2s_v5,17
@@ -228,17 +228,17 @@
     Standard_D8s_v5,5
 
 .EXAMPLE
-    .\Get-AzVMAvailability.ps1 -Inventory @{'Standard_D2s_v5'=17; 'Standard_D4s_v5'=4; 'Standard_D8s_v5'=5} -Region "eastus" -NoPrompt
+    .\GET-AZVMLIFECYCLE.ps1 -Inventory @{'Standard_D2s_v5'=17; 'Standard_D4s_v5'=4; 'Standard_D8s_v5'=5} -Region "eastus" -NoPrompt
     Inline inventory BOM using PowerShell hashtable syntax.
 
 .EXAMPLE
-    .\Get-AzVMAvailability.ps1 -GenerateInventoryTemplate
+    .\GET-AZVMLIFECYCLE.ps1 -GenerateInventoryTemplate
     Creates inventory-template.csv and inventory-template.json in the current directory.
     Edit the files with your VM SKUs and quantities, then run:
-    .\Get-AzVMAvailability.ps1 -InventoryFile .\inventory-template.csv -Region "eastus" -NoPrompt
+    .\GET-AZVMLIFECYCLE.ps1 -InventoryFile .\inventory-template.csv -Region "eastus" -NoPrompt
 
 .EXAMPLE
-    .\Get-AzVMAvailability.ps1 -LifecycleRecommendations .\my-vms.csv -Region "eastus" -NoPrompt
+    .\GET-AZVMLIFECYCLE.ps1 -LifecycleRecommendations .\my-vms.csv -Region "eastus" -NoPrompt
     Lifecycle analysis: loads a list of current VM SKUs, runs compatibility-validated
     recommendations for each, and produces a consolidated risk summary identifying
     old-generation SKUs, capacity-constrained SKUs, and recommended replacements.
@@ -247,12 +247,12 @@
     for both the current SKU and the recommended replacement.
 
 .EXAMPLE
-    .\Get-AzVMAvailability.ps1
+    .\GET-AZVMLIFECYCLE.ps1
     Run interactively. After exploring regions and families, you'll be prompted to optionally
     enter recommend mode to find alternatives for a specific SKU.
 
 .LINK
-    https://github.com/zacharyluz/Get-AzVMAvailability
+    https://github.com/bzlowrance/Get-AzVMLifecycle
 #>
 
 [CmdletBinding()]
@@ -422,15 +422,15 @@ Standard_E16s_v5,1
     Write-Host ""
     Write-Host "Next steps:" -ForegroundColor Yellow
     Write-Host "  1. Edit the template with your VM SKUs and quantities"
-    Write-Host "  2. Run: .\Get-AzVMAvailability.ps1 -InventoryFile .\inventory-template.csv -Region 'eastus' -NoPrompt"
+    Write-Host "  2. Run: .\GET-AZVMLIFECYCLE.ps1 -InventoryFile .\inventory-template.csv -Region 'eastus' -NoPrompt"
     return
 }
 #endregion GenerateInventoryTemplate
 
 if ($PSVersionTable.PSVersion.Major -lt 7) {
-    Write-Warning "PowerShell 7+ is required to run Get-AzVMAvailability.ps1."
+    Write-Warning "PowerShell 7+ is required to run GET-AZVMLIFECYCLE.ps1."
     Write-Host "Current host: $($PSVersionTable.PSEdition) $($PSVersionTable.PSVersion)" -ForegroundColor Yellow
-    Write-Host "Install PowerShell 7 and rerun with: pwsh -File .\Get-AzVMAvailability.ps1" -ForegroundColor Cyan
+    Write-Host "Install PowerShell 7 and rerun with: pwsh -File .\GET-AZVMLIFECYCLE.ps1" -ForegroundColor Cyan
     throw "PowerShell 7+ is required. Current version: $($PSVersionTable.PSVersion)"
 }
 
@@ -957,7 +957,7 @@ if ($Environment) {
 
 # Detect execution environment (Azure Cloud Shell vs local)
 $isCloudShell = $env:CLOUD_SHELL -eq "true" -or (Test-Path "/home/system" -ErrorAction SilentlyContinue)
-$defaultExportPath = if ($isCloudShell) { "/home/system" } else { "C:\Temp\AzVMAvailability" }
+$defaultExportPath = if ($isCloudShell) { "/home/system" } else { "C:\Temp\AzVMLifecycle" }
 
 # Auto-detect Unicode support for status icons
 # Checks for modern terminals that support Unicode characters
@@ -1004,16 +1004,16 @@ if ($AutoExport -and -not $ExportPath) {
 
 #endregion Configuration
 #region Module Import / Inline Fallback
-$script:ModuleRoot = Join-Path $PSScriptRoot 'AzVMAvailability'
+$script:ModuleRoot = Join-Path $PSScriptRoot 'AzVMLifecycle'
 $script:ModuleLoaded = $false
-if (Test-Path (Join-Path $script:ModuleRoot 'AzVMAvailability.psd1')) {
+if (Test-Path (Join-Path $script:ModuleRoot 'AzVMLifecycle.psd1')) {
     try {
         Import-Module $script:ModuleRoot -Force -DisableNameChecking -ErrorAction Stop
         $script:ModuleLoaded = $true
-        Write-Verbose "Loaded functions from AzVMAvailability module"
+        Write-Verbose "Loaded functions from AzVMLifecycle module"
     }
     catch {
-        Write-Verbose "AzVMAvailability module failed to load: $($_.Exception.Message) - using inline function definitions"
+        Write-Verbose "AzVMLifecycle module failed to load: $($_.Exception.Message) - using inline function definitions"
     }
 }
 if (-not $script:ModuleLoaded) {
@@ -3946,7 +3946,7 @@ $script:RunContext.OutputWidth = $script:OutputWidth
 
 Write-Host "`n" -NoNewline
 Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
-Write-Host "GET-AZVMAVAILABILITY v$ScriptVersion" -ForegroundColor Green
+Write-Host "GET-AZVMLIFECYCLE v$ScriptVersion" -ForegroundColor Green
 Write-Host "Personal project — not an official Microsoft product. Provided AS IS." -ForegroundColor DarkGray
 Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host "Subscriptions: $($TargetSubIds.Count) | Regions: $($Regions -join ', ')" -ForegroundColor Cyan
@@ -6038,7 +6038,7 @@ if ($ExportPath) {
     Write-Host "`nEXPORTING..." -ForegroundColor Cyan
 
     if ($useXLSX -and (Test-ImportExcelModule)) {
-        $xlsxFile = Join-Path $ExportPath "AzVMAvailability-$timestamp.xlsx"
+        $xlsxFile = Join-Path $ExportPath "AzVMLifecycle-$timestamp.xlsx"
         try {
             # Define colors for conditional formatting
             $greenFill = [System.Drawing.Color]::FromArgb(198, 239, 206)
@@ -6394,8 +6394,8 @@ if ($ExportPath) {
     }
 
     if (-not $useXLSX) {
-        $summaryFile = Join-Path $ExportPath "AzVMAvailability-Summary-$timestamp.csv"
-        $detailFile = Join-Path $ExportPath "AzVMAvailability-Details-$timestamp.csv"
+        $summaryFile = Join-Path $ExportPath "AzVMLifecycle-Summary-$timestamp.csv"
+        $detailFile = Join-Path $ExportPath "AzVMLifecycle-Details-$timestamp.csv"
 
         $summaryRowsForExport | Export-Csv -Path $summaryFile -NoTypeInformation -Encoding UTF8
         $familyDetails | Export-Csv -Path $detailFile -NoTypeInformation -Encoding UTF8

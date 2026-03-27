@@ -12,14 +12,14 @@
 **Action Taken:** Fixed — added `Get-Command git -ErrorAction SilentlyContinue` check and wrapped `git ls-files` in `try/catch` with `Write-Verbose` on failure.
 
 ### Comment 2
-**File:** `Get-AzVMAvailability.ps1:1211`
+**File:** `GET-AZVMLIFECYCLE.ps1:1211`
 **Copilot Finding:** "`spotPricingEnabled` is set directly from `-ShowSpot`, even if pricing wasn't fetched. This can produce a JSON contract that reports spot pricing as enabled while all spot price fields are null."
 **Assessment:** Agree
 **Reasoning:** The JSON contract should reflect effective state. If pricing isn't fetched, spot pricing fields will all be null regardless of the switch — reporting `spotPricingEnabled: true` is misleading to consumers.
 **Action Taken:** Fixed — changed to `($FetchPricing -and $ShowSpot)`.
 
 ### Comment 3
-**File:** `Get-AzVMAvailability.ps1:2039`
+**File:** `GET-AZVMLIFECYCLE.ps1:2039`
 **Copilot Finding:** "`Get-PlacementScores` silently truncates inputs to `-First 5` SKUs and `-First 8` regions, which can lead to misleading N/A allocation scores when callers pass larger sets."
 **Assessment:** Partially Agree
 **Reasoning:** The scan path already warns at line 3080 when >5 SKUs are filtered, but the function itself truncates silently. Batching into multiple API calls is deferred to v1.12.0 (fleet planning). Adding `Write-Verbose` inside the function provides traceability without breaking callers.
@@ -30,14 +30,14 @@
 **Date:** 2026-03-12 | **Branch:** feature/placement-score-phase1 | **Commit:** bdfad39
 
 ### Comment 4
-**File:** `Get-AzVMAvailability.ps1:1998`
+**File:** `GET-AZVMLIFECYCLE.ps1:1998`
 **Copilot Finding:** "`Get-RegularPricingMap` only recognizes `[hashtable]` containers but `Get-AzVMPricing` returns `[ordered]@{}` (OrderedDictionary), so pricing lookups fail."
 **Assessment:** Agree
 **Reasoning:** `[ordered]@{}` in PowerShell creates `System.Collections.Specialized.OrderedDictionary`, not `[hashtable]`. The `-is [hashtable]` check would fail, causing the function to return the entire container instead of the `Regular` map.
 **Action Taken:** Changed to `$PricingContainer -is [System.Collections.IDictionary]` which handles both types.
 
 ### Comment 5
-**File:** `Get-AzVMAvailability.ps1:2019`
+**File:** `GET-AZVMLIFECYCLE.ps1:2019`
 **Copilot Finding:** "`Get-SpotPricingMap` has the same container-type issue — always treats spot pricing as absent."
 **Assessment:** Agree
 **Reasoning:** Same root cause as Comment 4.
@@ -62,14 +62,14 @@
 **Date:** 2026-03-25 | **Branch:** main | **Commits:** 5223065, 8d24603
 
 ### Comment 1
-**File:** `AzVMAvailability/Private/Format/Invoke-RecommendMode.ps1:142`
+**File:** `AzVMLifecycle/Private/Format/Invoke-RecommendMode.ps1:142`
 **Copilot Finding:** "`Get-SkuSimilarityScore` now relies on `FamilyVersion`, and `targetProfile` sets it, but `candidateProfile` does not. As a result, candidate SKUs will be treated as version 1 in scoring, which breaks the new 'family version newness' dimension and will skew recommendation rankings."
 **Assessment:** Agree
 **Reasoning:** Real scoring bug. `targetProfile` sets `FamilyVersion = Get-SkuFamilyVersion $targetSku.Name` but `candidateProfile` omitted it entirely, causing all candidates to default to version 1 in the 12-point version dimension. Newer-gen SKUs (v5/v6/v7) were penalized up to 12 points. Copilot's suggested fix was over-engineered (12 lines of `$FamilyInfo` hashtable lookup) when `Get-SkuFamilyVersion` already parses `_v5` → `5` in one line.
 **Action Taken:** Fixed — added `FamilyVersion = Get-SkuFamilyVersion $sku.Name` to `candidateProfile` (1 line). Commit 5223065.
 
 ### Comment 2
-**File:** `AzVMAvailability/Private/Azure/Get-AzVMPricing.ps1:93`
+**File:** `AzVMLifecycle/Private/Azure/Get-AzVMPricing.ps1:93`
 **Copilot Finding:** "Reservation pricing is being handled inconsistently with Savings Plan pricing... If `retailPrice` for `type='Reservation'` is an hourly rate, this will understate totals by ~8760×."
 **Assessment:** Disagree
 **Reasoning:** Azure Retail Prices API returns reservation `retailPrice` as the **full-term total**, not hourly. The official API docs example shows `retailPrice: 25007.0` for E64_v4 1-year RI (vs ~$4.03/hr PAYG). The `unitOfMeasure` field says "1 Hour" for all VM meter types regardless of pricing type — it describes the meter granularity, not the price unit. Dividing by 12/36 for monthly is correct. Copilot assumed the price was hourly; it's not.
@@ -97,14 +97,14 @@
 **Action Taken:** Fixed — `series` → `NCasT4v3`, `reason` → "NVIDIA T4 GPU — lower cost for GPU inference and light compute". Commit 8d24603.
 
 ### Comment 6
-**File:** `AzVMAvailability/Private/SKU/Test-SkuCompatibility.ps1:45`
+**File:** `AzVMLifecycle/Private/SKU/Test-SkuCompatibility.ps1:45`
 **Copilot Finding:** "`Test-SkuCompatibility` claims to enforce hard requirements for data disks, but there is currently no check comparing `MaxDataDiskCount`."
 **Assessment:** Partially Agree
 **Reasoning:** The function's help text says "data disks" in the hard gate list, but the implementation intentionally treats it as a soft scoring dimension (7 points in `Get-SkuSimilarityScore`). Making it a hard gate would over-restrict recommendations — many users don't use all available disk slots. The fix is aligning the docs, not changing the gate logic.
 **Action Taken:** Fixed docs (README hard gate table) in Comment 3's fix. The function's `.DESCRIPTION` help text is accurate enough as a general overview. Commit 8d24603.
 
 ### Comment 7
-**File:** `AzVMAvailability/Private/SKU/Get-SkuRetirementInfo.ps1:23`
+**File:** `AzVMLifecycle/Private/SKU/Get-SkuRetirementInfo.ps1:23`
 **Copilot Finding:** "Some retirement patterns look too narrow... the Dv3 pattern `^Standard_D\\d+s?_v3$` won't match common v3 variants like `Standard_D4ds_v3`."
 **Assessment:** Disagree
 **Reasoning:** `Standard_D4ds_v3` does not exist in Azure. The `ds` suffix (local SSD + premium storage) was introduced in v4+ naming conventions. Real Dv3 SKU names are `Standard_D*_v3` and `Standard_D*s_v3` only. Same applies to Ev3 — `Standard_E4ds_v3` doesn't exist. The Ev3 pattern `^Standard_E\\d+i?s?_v3$` correctly matches the `i` (isolated) and `s` (premium storage) suffixes that actually exist in the v3 generation.
@@ -129,7 +129,7 @@
 **Action Taken:** Fixed — changed `"AMD GPU drivers"` to `"NVIDIA GPU drivers (T4)"` in `requirements` array. Commit 637d9d4.
 
 ### Comment 10
-**File:** `AzVMAvailability/Private/SKU/Test-SkuCompatibility.ps1:10`
+**File:** `AzVMLifecycle/Private/SKU/Test-SkuCompatibility.ps1:10`
 **Copilot Finding:** "The comment-based help says this performs hard checks for 'data disks', but the function never evaluates `MaxDataDiskCount`."
 **Assessment:** Partially Agree
 **Reasoning:** Same root cause as Round 1 Comments 3/6/8 — the `.DESCRIPTION` help text lists "data disks" as a hard gate but the implementation intentionally treats it as a soft scoring dimension. The README gate table was already fixed in Round 1; the function's help text also needs updating for consistency.
@@ -143,14 +143,14 @@
 **Action Taken:** Fixed — updated Features bullet to list only the actual hard-gate dimensions (NICs, accelerated networking, premium IO, disk interface, ephemeral OS disk, Ultra SSD). Commit 637d9d4.
 
 ### Comment 12
-**File:** `AzVMAvailability/Private/SKU/Get-SkuRetirementInfo.ps1:21`
+**File:** `AzVMLifecycle/Private/SKU/Get-SkuRetirementInfo.ps1:21`
 **Copilot Finding:** "The Dv3 retirement regex misses DSv3 SKUs like `Standard_DS2_v3` / `Standard_DS3_v3`."
 **Assessment:** Disagree
 **Reasoning:** `Standard_DS2_v3` and `Standard_DS3_v3` do not exist in Azure. Copilot is confusing v1-era naming (`Standard_DS*` = D-series premium storage v1) with v3 naming. In the v3 generation, the premium storage suffix is lowercase `s` after the size number: `Standard_D2s_v3`, `Standard_D4s_v3`, etc. The existing regex `^Standard_D\d+s?_v3$` correctly matches both `Standard_D2_v3` (no premium) and `Standard_D2s_v3` (with premium). There is no `Standard_DS2_v3` in any Azure region — run `Get-AzComputeResourceSku | Where-Object { $_.Name -match 'DS\d+_v3' }` to verify empty results.
 **Action Taken:** No change — regexes are correct. Same false positive as Round 1 Comment 7.
 
 ### Comment 13
-**File:** `AzVMAvailability/Private/Azure/Get-AzVMPricing.ps1:43`
+**File:** `AzVMLifecycle/Private/Azure/Get-AzVMPricing.ps1:43`
 **Copilot Finding:** "`Get-AzVMPricing` now returns additional maps (SavingsPlan*/Reservation*) and no longer filters by `priceType eq 'Consumption'`, but the help text still says 'Retrieves pay-as-you-go Linux pricing'."
 **Assessment:** Agree
 **Reasoning:** The function was expanded to fetch consumption, savings plan, reservation, and spot pricing in a single API call (no `priceType` filter). The `.DESCRIPTION` help text is stale — it only mentions pay-as-you-go.
@@ -186,14 +186,14 @@
 **Date:** 2026-03-26 | **Branch:** main | **Commit:** dc0ba2b
 
 ### Comment 17
-**File:** `AzVMAvailability/Private/Azure/Get-AzVMPricing.ps1:118`
+**File:** `AzVMLifecycle/Private/Azure/Get-AzVMPricing.ps1:118`
 **Copilot Finding:** "`8760` is a non-obvious term-hour constant embedded in the savings plan total calculation. Consider defining a named constant (e.g., HoursPerYear) or computing it from days×hours to make the intent clearer and reduce maintenance risk."
 **Assessment:** Agree
 **Reasoning:** Project conventions (copilot-instructions.md line 109) explicitly require named constants for magic numbers. `$HoursPerMonth = 730` already exists as a named constant. `8760` (hours per year) should be derived as `$HoursPerMonth * 12`.
 **Action Taken:** Fixed — added `$HoursPerYear = $HoursPerMonth * 12` and replaced bare `8760` in both module and inline copies. Commit dc0ba2b.
 
 ### Comment 18
-**File:** `AzVMAvailability/Private/Azure/Get-AzVMPricing.ps1:124`
+**File:** `AzVMLifecycle/Private/Azure/Get-AzVMPricing.ps1:124`
 **Copilot Finding:** "`26280` is another non-obvious term-hour constant (3-year total) in the savings plan calculation. Please use a named constant (e.g., HoursPer3Years) or a self-documenting calculation to keep the pricing logic easy to audit."
 **Assessment:** Agree
 **Reasoning:** Same root cause as Comment 17. `26280` (hours per 3 years) should be derived as `$HoursPerMonth * 36`.
@@ -234,18 +234,18 @@ Date: 2026-03-12
 - **Action taken:** Reworded to "A version bump is required; ScriptVersion must not be lower than the latest tag."
 
 ---
-## PR #35 — feat(skill): add azure-vm-availability Copilot skill
+## PR #35 — feat(skill): add azure-vm-lifecycle Copilot skill
 **Date:** 2026-03-12 | **Branch:** feat/copilot-skill | **Commit:** (merged)
 
 ### Comment 1
-**File:** `.github/skills/azure-vm-availability/SKILL.md:7`
+**File:** `.github/skills/azure-vm-lifecycle/SKILL.md:7`
 **Copilot Finding:** "Version `"1.1.0"` appears to be a typo — the script version is `"1.11.0"`. Should be `"1.11.0"` to match the script."
 **Assessment:** Disagree
 **Reasoning:** Line 7 includes an explicit inline comment `# Skill version (independent of script version 1.11.0)`. The skill has its own semver lifecycle independent of the script. The "typo" is intentional versioning.
 **Action:** No change. Inline comment in source already suppresses this concern.
 
 ### Comment 2
-**File:** `.github/skills/azure-vm-availability/SKILL.md:328`
+**File:** `.github/skills/azure-vm-lifecycle/SKILL.md:328`
 **Copilot Finding:** "JSON schema example is missing fields: `purpose`, `gen`, `arch`, `cpu`, `disk`, `tempDiskGB`, `accelNet`, `TempDiskGB`, `AccelNet`."
 **Assessment:** Disagree
 **Reasoning:** Lines 332-336 of SKILL.md contain an explicit "Note:" block stating "The examples above show key fields for brevity. In actual output, each `recommendations` object also includes `purpose`, `gen`, `arch`, `cpu`, `disk`, `tempDiskGB`, and `accelNet`." The omission is intentional and documented.
@@ -262,7 +262,7 @@ Date: 2026-03-12
 **File:** `README.md:411`
 **Copilot Finding:** "New Copilot skill should be documented in CHANGELOG.md under `[Unreleased]`."
 **Assessment:** Disagree
-**Reasoning:** CHANGELOG.md line 27 already contains the entry: "Copilot skill (`.github/skills/azure-vm-availability/SKILL.md`) for AI agent integration" in the `[1.11.1]` section. Entry was added in a subsequent commit before the release cut.
+**Reasoning:** CHANGELOG.md line 27 already contains the entry: "Copilot skill (`.github/skills/azure-vm-lifecycle/SKILL.md`) for AI agent integration" in the `[1.11.1]` section. Entry was added in a subsequent commit before the release cut.
 **Action:** No change.
 
 ---
@@ -310,7 +310,7 @@ Date: 2026-03-12
 **Copilot Finding:** "`aarch64` sets `Arch=ARM64` but leaves `Gen=Gen1` because `aarch64` isn't in the Gen detection regex. Inconsistent with `arm64` which correctly sets Gen2."
 **Assessment:** Agree
 **Reasoning:** In `Get-ImageRequirements` (main script line 1765), the Gen2 regex matches `arm64` but not `aarch64`. The Arch regex at line 1778 matches both. Since all Azure ARM64 (Ampere Altra) VMs require Gen2 UEFI, `aarch64` should also trigger Gen2 detection. The inconsistency would cause `aarch64`-keyed SKUs to incorrectly pass Gen1-only VMs as compatible.
-**Action:** Fixed — added `aarch64` to Gen2 regex in `Get-AzVMAvailability.ps1` line 1765. Added `$result.Gen | Should -Be 'Gen2'` assertion to the `aarch64` test in `ImageCompatibility.Tests.ps1`.
+**Action:** Fixed — added `aarch64` to Gen2 regex in `GET-AZVMLIFECYCLE.ps1` line 1765. Added `$result.Gen | Should -Be 'Gen2'` assertion to the `aarch64` test in `ImageCompatibility.Tests.ps1`.
 
 ---
 ## PR #39 — chore: add scheduled tooling health check + PR template coverage gate
@@ -380,10 +380,10 @@ Date: 2026-03-12
 
 | # | File:Line | Copilot Finding (quoted) | Assessment | Reasoning | Action |
 |---|-----------|-------------------------|------------|-----------|--------|
-| 1 | Get-AzVMAvailability.ps1:3278 | "Parallel block duplicates full retry + SKU/quota logic. Consider consolidating." | **Defer** | Known constraint documented in copilot-instructions.md: parallel runspaces cannot see script-scope functions. Consolidation is Phase 5 module extraction work. | Deferred to Phase 5. |
-| 2 | Get-AzVMAvailability.ps1:3237 | "Retry logic checks 'ServiceUnavailable' but not 'Service Unavailable' (with space)." | **Agree** | Azure exceptions can use either form. | Fixed: Added 'Service Unavailable' to match set. |
-| 3 | Get-AzVMAvailability.ps1:3260 | "SKU filtering rebuilds regex per SKU×pattern. Consider precomputing." | **Disagree** | Micro-optimization in a parallel block that runs once per region. The regex escape is trivial CPU work compared to the Azure API calls. Not worth the added complexity. | No action. |
-| 4 | Get-AzVMAvailability.ps1:3226 | "No regression test for $using: scriptblock pattern." | **Partially Agree** | An AST-based test would catch reintroduction, but the error is immediate and obvious at runtime. Low priority. | Deferred — may add in Phase 5. |
+| 1 | GET-AZVMLIFECYCLE.ps1:3278 | "Parallel block duplicates full retry + SKU/quota logic. Consider consolidating." | **Defer** | Known constraint documented in copilot-instructions.md: parallel runspaces cannot see script-scope functions. Consolidation is Phase 5 module extraction work. | Deferred to Phase 5. |
+| 2 | GET-AZVMLIFECYCLE.ps1:3237 | "Retry logic checks 'ServiceUnavailable' but not 'Service Unavailable' (with space)." | **Agree** | Azure exceptions can use either form. | Fixed: Added 'Service Unavailable' to match set. |
+| 3 | GET-AZVMLIFECYCLE.ps1:3260 | "SKU filtering rebuilds regex per SKU×pattern. Consider precomputing." | **Disagree** | Micro-optimization in a parallel block that runs once per region. The regex escape is trivial CPU work compared to the Azure API calls. Not worth the added complexity. | No action. |
+| 4 | GET-AZVMLIFECYCLE.ps1:3226 | "No regression test for $using: scriptblock pattern." | **Partially Agree** | An AST-based test would catch reintroduction, but the error is immediate and obvious at runtime. Low priority. | Deferred — may add in Phase 5. |
 
 ---
 ## PR #82 — fix: traffic workflow token fallback
@@ -400,7 +400,7 @@ Date: 2026-03-12
 
 | # | File:Line | Copilot Finding (quoted) | Assessment | Reasoning | Action |
 |---|-----------|-------------------------|------------|-----------|--------|
-| 1 | .github/workflows/release-on-main.yml:86 | "The new stagnation throw message is missing key guidance and appears to have a formatting regression vs the previous message (it no longer explicitly tells the user to bump $ScriptVersion in Get-AzVMAvailability.ps1 and add a CHANGELOG entry)." | **Agree** | The shortened error message dropped actionable remediation steps. Multiline here-string with explicit instructions is clearer. | Fixed: replaced single-line throw with multiline here-string including step-by-step resolution instructions. |
+| 1 | .github/workflows/release-on-main.yml:86 | "The new stagnation throw message is missing key guidance and appears to have a formatting regression vs the previous message (it no longer explicitly tells the user to bump $ScriptVersion in GET-AZVMLIFECYCLE.ps1 and add a CHANGELOG entry)." | **Agree** | The shortened error message dropped actionable remediation steps. Multiline here-string with explicit instructions is clearer. | Fixed: replaced single-line throw with multiline here-string including step-by-step resolution instructions. |
 | 2 | .github/workflows/collect-traffic.yml:16 | "This workflow sets GH_TOKEN from secrets.GITHUB_TOKEN, but other workflows in this repo consistently use github.token. Consider switching for consistency." | **Agree** | `github.token` is the idiomatic pattern used in release-on-main.yml and release-metadata-guard.yml. Consistency reduces confusion. | Fixed: changed job-level env and traffic fallbacks from `secrets.GITHUB_TOKEN` to `github.token`. |
 | 3 | artifacts/copilot-review-log.md:342 | "This review log is under artifacts/ which is gitignored — confusing since it's force-added. Consider adding a .gitignore exception." | **Partially Agree** | The file is intentionally tracked via `git add -f`, but a `.gitignore` exception makes this explicit and prevents accidental exclusion. Moving to `docs/` would mix process artifacts with user-facing documentation. | Fixed: added `!/artifacts/copilot-review-log.md` exception to `.gitignore`. |
 
@@ -419,10 +419,10 @@ Date: 2026-03-12
 
 | # | File:Line | Copilot Finding (quoted) | Assessment | Reasoning | Action Taken |
 |---|-----------|--------------------------|------------|-----------|--------------|
-| 1 | Get-AzVMAvailability.ps1:565 | "RFC1123 parsing uses DateTimeStyles.None and then calls ToUniversalTime(). If the parsed DateTime Kind is Unspecified, ToUniversalTime() treats it as local time, which can skew the computed wait interval." | **Agree** | Valid correctness bug — in timezones east of UTC, `DateTimeStyles.None` produces `Kind=Local`, and `ToUniversalTime()` adds the offset twice, causing over-sleep of up to 14 hours. | Fixed: Changed to `DateTimeStyles.AssumeUniversal -bor DateTimeStyles.AdjustToUniversal`; removed redundant `.ToUniversalTime()` call since parsed value is already UTC. |
-| 2 | Get-AzVMAvailability.ps1:569 | "Retry-After values parsed as integer seconds can be 0/negative and would flow into Start-Sleep -Seconds, which will error for negative values. Consider clamping integer-parsed values to a minimum of 1." | **Agree** | `Start-Sleep -Seconds 0` is a no-op and `Start-Sleep -Seconds -1` throws. Azure could theoretically return `Retry-After: 0` for an immediate retry, so clamping to 1 is safe and prevents an unhandled error. | Fixed: Wrapped parsed integer in `[math]::Max(1, $parsedSeconds)`. |
-| 3 | Get-AzVMAvailability.ps1:2183 | "The OData filter string in the Cost Management API URL contains spaces and quotes which will produce an invalid/unescaped URI." | **Agree** | `Invoke-RestMethod` does not auto-encode query string values passed in the `-Uri` string. The space in `meterCategory eq 'Virtual Machines'` is a bare space in the URI, which fails strict RFC 3986 parsers and some http proxy/gateway implementations. | Fixed: Extracted filter to `$odataFilter = [uri]::EscapeDataString(...)` and interpolated the encoded value into `$apiUrl`. |
-| 4 | Get-AzVMAvailability.ps1:569 | "There's no Pester coverage for the new RFC1123 HTTP-date Retry-After behavior in Invoke-WithRetry." | **Agree** | The RFC1123 path and integer-clamp path were both untested. Any future regression would be silent. | Fixed: Added `Context "Retry-After header parsing — integer seconds"` and `Context "Retry-After header parsing — RFC1123 HTTP-date"` to `tests/Invoke-WithRetry.Tests.ps1` (4 new `It` blocks). |
+| 1 | GET-AZVMLIFECYCLE.ps1:565 | "RFC1123 parsing uses DateTimeStyles.None and then calls ToUniversalTime(). If the parsed DateTime Kind is Unspecified, ToUniversalTime() treats it as local time, which can skew the computed wait interval." | **Agree** | Valid correctness bug — in timezones east of UTC, `DateTimeStyles.None` produces `Kind=Local`, and `ToUniversalTime()` adds the offset twice, causing over-sleep of up to 14 hours. | Fixed: Changed to `DateTimeStyles.AssumeUniversal -bor DateTimeStyles.AdjustToUniversal`; removed redundant `.ToUniversalTime()` call since parsed value is already UTC. |
+| 2 | GET-AZVMLIFECYCLE.ps1:569 | "Retry-After values parsed as integer seconds can be 0/negative and would flow into Start-Sleep -Seconds, which will error for negative values. Consider clamping integer-parsed values to a minimum of 1." | **Agree** | `Start-Sleep -Seconds 0` is a no-op and `Start-Sleep -Seconds -1` throws. Azure could theoretically return `Retry-After: 0` for an immediate retry, so clamping to 1 is safe and prevents an unhandled error. | Fixed: Wrapped parsed integer in `[math]::Max(1, $parsedSeconds)`. |
+| 3 | GET-AZVMLIFECYCLE.ps1:2183 | "The OData filter string in the Cost Management API URL contains spaces and quotes which will produce an invalid/unescaped URI." | **Agree** | `Invoke-RestMethod` does not auto-encode query string values passed in the `-Uri` string. The space in `meterCategory eq 'Virtual Machines'` is a bare space in the URI, which fails strict RFC 3986 parsers and some http proxy/gateway implementations. | Fixed: Extracted filter to `$odataFilter = [uri]::EscapeDataString(...)` and interpolated the encoded value into `$apiUrl`. |
+| 4 | GET-AZVMLIFECYCLE.ps1:569 | "There's no Pester coverage for the new RFC1123 HTTP-date Retry-After behavior in Invoke-WithRetry." | **Agree** | The RFC1123 path and integer-clamp path were both untested. Any future regression would be silent. | Fixed: Added `Context "Retry-After header parsing — integer seconds"` and `Context "Retry-After header parsing — RFC1123 HTTP-date"` to `tests/Invoke-WithRetry.Tests.ps1` (4 new `It` blocks). |
 
 ---
 ## PR #48 — post-merge Copilot comments | branch: fix/copilot-pr48-follow-up
@@ -451,13 +451,13 @@ Date: 2026-03-12
 
 | # | File:Line | Copilot Finding | Assessment | Reasoning | Action |
 |---|-----------|----------------|------------|-----------|--------|
-| 1 | Get-AzVMAvailability.ps1:373 | "Write-Host will write to the host even when -JsonOutput is set, breaking the script's JSON-only output contract." | **Agree** | Write-Host in FleetFile load path would corrupt JSON piped output. | Fixed: wrapped in `if (-not $JsonOutput)`. |
-| 2 | Get-AzVMAvailability.ps1:361 | "ConvertFrom-Json can return a single PSCustomObject; code assumes array." | **Agree** | Single-object JSON would iterate properties instead of items. | Fixed: wrapped with `@()` to force array. |
-| 3 | Get-AzVMAvailability.ps1:357 | "-FleetFile currently overwrites Fleet unconditionally. If both supplied, behavior is surprising." | **Agree** | Conflicting inputs should fail fast, not silently override. | Fixed: throw if both -Fleet and -FleetFile supplied. |
-| 4 | Get-AzVMAvailability.ps1:371 | "else branch treats any non-.json file as CSV. Should validate extension." | **Agree** | Silent Import-Csv on .xlsx/.txt would produce confusing errors. | Fixed: added `-notin '.csv','.json'` guard with descriptive throw. |
-| 5 | Get-AzVMAvailability.ps1:369 | "Intel.SKU regex dot is wildcard, matches unintended headers." | **Agree** | Regex `.` matches any char (IntelXSKU would match). | Fixed: escaped to `Intel\.SKU` in both branches. |
-| 6 | Get-AzVMAvailability.ps1:374 | "No Pester tests cover FleetFile parsing." | **Agree/Defer** | Valid — FleetFile parsing is new untested code. Tests warrant a dedicated test file. | Deferred to P1 — tracking for next patch. |
-| 7 | Get-AzVMAvailability.ps1:370 | "Duplicate SKU rows overwrite instead of aggregate." | **Agree** | BOM CSVs commonly have duplicates from merged exports. Summing is safer than silent overwrite. | Fixed: added ContainsKey check, sums quantities for duplicates. |
+| 1 | GET-AZVMLIFECYCLE.ps1:373 | "Write-Host will write to the host even when -JsonOutput is set, breaking the script's JSON-only output contract." | **Agree** | Write-Host in FleetFile load path would corrupt JSON piped output. | Fixed: wrapped in `if (-not $JsonOutput)`. |
+| 2 | GET-AZVMLIFECYCLE.ps1:361 | "ConvertFrom-Json can return a single PSCustomObject; code assumes array." | **Agree** | Single-object JSON would iterate properties instead of items. | Fixed: wrapped with `@()` to force array. |
+| 3 | GET-AZVMLIFECYCLE.ps1:357 | "-FleetFile currently overwrites Fleet unconditionally. If both supplied, behavior is surprising." | **Agree** | Conflicting inputs should fail fast, not silently override. | Fixed: throw if both -Fleet and -FleetFile supplied. |
+| 4 | GET-AZVMLIFECYCLE.ps1:371 | "else branch treats any non-.json file as CSV. Should validate extension." | **Agree** | Silent Import-Csv on .xlsx/.txt would produce confusing errors. | Fixed: added `-notin '.csv','.json'` guard with descriptive throw. |
+| 5 | GET-AZVMLIFECYCLE.ps1:369 | "Intel.SKU regex dot is wildcard, matches unintended headers." | **Agree** | Regex `.` matches any char (IntelXSKU would match). | Fixed: escaped to `Intel\.SKU` in both branches. |
+| 6 | GET-AZVMLIFECYCLE.ps1:374 | "No Pester tests cover FleetFile parsing." | **Agree/Defer** | Valid — FleetFile parsing is new untested code. Tests warrant a dedicated test file. | Deferred to P1 — tracking for next patch. |
+| 7 | GET-AZVMLIFECYCLE.ps1:370 | "Duplicate SKU rows overwrite instead of aggregate." | **Agree** | BOM CSVs commonly have duplicates from merged exports. Summing is safer than silent overwrite. | Fixed: added ContainsKey check, sums quantities for duplicates. |
 | 8 | README.md:179 | "JSON doesn't have columns; expected JSON shape not specified." | **Agree** | Parameter description said "columns: SKU, Qty" which doesn't apply to JSON. | Fixed: updated to specify JSON format: array of `{SKU, Qty}` objects. |
 | 9 | SKILL.md:223 | "Workflow 7 references fleet.json but doesn't show expected JSON structure." | **Agree** | AI agents need a concrete example to generate correct file shape. | Fixed: added 5-SKU JSON example block in Workflow 7. |
 
@@ -467,10 +467,10 @@ Date: 2026-03-12
 
 | # | File:Line | Copilot Finding | Assessment | Reasoning | Action |
 |---|-----------|----------------|------------|-----------|--------|
-| 1 | Get-AzVMAvailability.ps1:386 | "-GenerateFleetTemplate returns after emitting host output even if -JsonOutput is also specified." | **Agree** | Template generation writes files not JSON. Mutual exclusivity is correct. | Fixed: throw if both switches specified. |
-| 2 | Get-AzVMAvailability.ps1:3072 | "This new Write-Host line will be emitted even when -JsonOutput is set." | **Disagree** | Line 3072 is the pre-existing script banner (one of 308 Write-Host calls). Not introduced by this PR. Gating all Write-Host behind JsonOutput is v2.0.0 scope (pipeline composability). | No action — pre-existing code. |
-| 3 | Get-AzVMAvailability.ps1:413 | "-FleetFile path handling uses Test-Path without -LiteralPath and without verifying it's a file." | **Agree** | Wildcard chars in paths and directory paths would cause confusing errors. | Fixed: -LiteralPath + -PathType Leaf on Test-Path, Get-Content, Import-Csv. |
-| 4 | Get-AzVMAvailability.ps1:430 | "Fleet BOM parsing accepts SKU values with leading/trailing whitespace and quantity values that are 0/negative." | **Agree** | Whitespace SKUs won't match discovery results. Zero/negative qty is nonsensical. | Fixed: .Trim() on SKU + positive int validation with descriptive throw. |
+| 1 | GET-AZVMLIFECYCLE.ps1:386 | "-GenerateFleetTemplate returns after emitting host output even if -JsonOutput is also specified." | **Agree** | Template generation writes files not JSON. Mutual exclusivity is correct. | Fixed: throw if both switches specified. |
+| 2 | GET-AZVMLIFECYCLE.ps1:3072 | "This new Write-Host line will be emitted even when -JsonOutput is set." | **Disagree** | Line 3072 is the pre-existing script banner (one of 308 Write-Host calls). Not introduced by this PR. Gating all Write-Host behind JsonOutput is v2.0.0 scope (pipeline composability). | No action — pre-existing code. |
+| 3 | GET-AZVMLIFECYCLE.ps1:413 | "-FleetFile path handling uses Test-Path without -LiteralPath and without verifying it's a file." | **Agree** | Wildcard chars in paths and directory paths would cause confusing errors. | Fixed: -LiteralPath + -PathType Leaf on Test-Path, Get-Content, Import-Csv. |
+| 4 | GET-AZVMLIFECYCLE.ps1:430 | "Fleet BOM parsing accepts SKU values with leading/trailing whitespace and quantity values that are 0/negative." | **Agree** | Whitespace SKUs won't match discovery results. Zero/negative qty is nonsensical. | Fixed: .Trim() on SKU + positive int validation with descriptive throw. |
 
 ---
 ## PR #80 — refactor: fix parent-scope implicit dependencies in 9 functions (#72)
@@ -478,13 +478,13 @@ Date: 2026-03-12
 
 | # | File:Line | Copilot Finding | Assessment | Reasoning | Action |
 |---|-----------|----------------|------------|-----------|--------|
-| 1 | Get-AzVMAvailability.ps1:905 | "Help text says 'cached at script scope' but implementation now uses -Caches dictionary." | **Agree** | Stale docstring from before parameterization. | Fixed in fdd2efe: updated docstring. |
-| 2 | Get-AzVMAvailability.ps1:1866 | "-RunContext is optional but function writes to it unconditionally — will throw if omitted." | **Partially Agree** | Made Mandatory. Skipped runtime property validation — internal function with 2 callers, not public API yet. Will add validation at module boundary in v2.0.0. | Fixed in fdd2efe: [Parameter(Mandatory)]. |
-| 3 | Get-AzVMAvailability.ps1:1856 | "[Nullable[int]]$MinScore with no default could cause issues when passed to [int]$MinScore in New-RecommendOutputContract." | **Disagree** | MinScore is intentionally nullable: null = no minimum filter (skip filtering), 0 = keep all with score >= 0. Both callers pass the script param value which has a default. Null->0 coercion in the contract is correct (0 = no filter in JSON). | No action — intentional design. |
-| 4 | Get-AzVMAvailability.ps1:2214 | "Bare 1024 is a magic number — reintroduced when $MBPerGB was removed." | **Agree** | Should be self-documenting. | Fixed in fdd2efe: local constant $MiBPerGiB = 1024. |
+| 1 | GET-AZVMLIFECYCLE.ps1:905 | "Help text says 'cached at script scope' but implementation now uses -Caches dictionary." | **Agree** | Stale docstring from before parameterization. | Fixed in fdd2efe: updated docstring. |
+| 2 | GET-AZVMLIFECYCLE.ps1:1866 | "-RunContext is optional but function writes to it unconditionally — will throw if omitted." | **Partially Agree** | Made Mandatory. Skipped runtime property validation — internal function with 2 callers, not public API yet. Will add validation at module boundary in v2.0.0. | Fixed in fdd2efe: [Parameter(Mandatory)]. |
+| 3 | GET-AZVMLIFECYCLE.ps1:1856 | "[Nullable[int]]$MinScore with no default could cause issues when passed to [int]$MinScore in New-RecommendOutputContract." | **Disagree** | MinScore is intentionally nullable: null = no minimum filter (skip filtering), 0 = keep all with score >= 0. Both callers pass the script param value which has a default. Null->0 coercion in the contract is correct (0 = no filter in JSON). | No action — intentional design. |
+| 4 | GET-AZVMLIFECYCLE.ps1:2214 | "Bare 1024 is a magic number — reintroduced when $MBPerGB was removed." | **Agree** | Should be self-documenting. | Fixed in fdd2efe: local constant $MiBPerGiB = 1024. |
 | 5 | tests/Get-ValidAzureRegions.Tests.ps1:18 | "$script:TestAzureEndpoints is initialized but never used — dead test setup state." | **Agree** | Leftover from refactoring. | Fixed in fdd2efe: removed. |
 ---
-## PR #89 -- feat: module scaffold -- extract 34 functions into AzVMAvailability/ module
+## PR #89 -- feat: module scaffold -- extract 34 functions into AzVMLifecycle/ module
 **Date:** 2026-03-21 | **Branch:** feature/module-scaffold | **Commit:** ab28069
 
 ### Round 2 (post-fix re-review, commit 908e2d8)
@@ -497,21 +497,21 @@ Date: 2026-03-12
 **Action Taken:** Fixed — Moved the two Fixed entries back under `[1.12.2]` where they belong.
 
 ### Comment 6
-**File:** `AzVMAvailability/AzVMAvailability.psm1:2`
+**File:** `AzVMLifecycle/AzVMLifecycle.psm1:2`
 **Copilot Finding:** "The header comment claims this loader dot-sources both private and public function files, but the implementation only dot-sources Private/* directories."
 **Assessment:** Agree
 **Reasoning:** No `Public/` folder exists yet. Comment should match reality.
 **Action Taken:** Fixed — Updated comment to "Dot-sources all private function files in dependency order".
 
 ### Comment 7
-**File:** `AzVMAvailability/Private/Format/Invoke-RecommendMode.ps1:42`
+**File:** `AzVMLifecycle/Private/Format/Invoke-RecommendMode.ps1:42`
 **Copilot Finding:** "`Invoke-RecommendMode` declares `MinScore` as `[Nullable[int]]` with no default, but later passes it to `New-RecommendOutputContract -MinScore` where the parameter type is `[int]`. If `-MinScore` is omitted, `$null` will be coerced to `0`."
 **Assessment:** Disagree
-**Reasoning:** `[Nullable[int]]` is intentional — it distinguishes "user didn't set MinScore" from "user explicitly set -MinScore 0" (show all candidates). The caller (`Get-AzVMAvailability.ps1`) applies the project default (50) via `$MinRecommendationScoreDefault` before invoking this function. Changing to `[int] = 0` would make it impossible to distinguish these two cases, breaking the documented `-MinScore 0` workflow. The null-to-0 coercion at the contract level is acceptable because by that point, filtering has already occurred.
+**Reasoning:** `[Nullable[int]]` is intentional — it distinguishes "user didn't set MinScore" from "user explicitly set -MinScore 0" (show all candidates). The caller (`GET-AZVMLIFECYCLE.ps1`) applies the project default (50) via `$MinRecommendationScoreDefault` before invoking this function. Changing to `[int] = 0` would make it impossible to distinguish these two cases, breaking the documented `-MinScore 0` workflow. The null-to-0 coercion at the contract level is acceptable because by that point, filtering has already occurred.
 **Action Taken:** No change — existing behavior is correct by design.
 
 ### Comment 1
-**File:** `Get-AzVMAvailability.ps1:629`
+**File:** `GET-AZVMLIFECYCLE.ps1:629`
 **Copilot Finding:** "This PR describes a v2.0.0 module scaffold, and the module manifest is set to `ModuleVersion = '2.0.0'`, but the main script still declares `Version: 1.12.2` in `.NOTES` and `$ScriptVersion = "1.12.2"`. With the script now depending on the module, these versions should be aligned (or the PR description adjusted) to avoid confusing releases and version-consistency checks."
 **Assessment:** Agree
 **Reasoning:** Module manifest at 2.0.0 with script at 1.12.2 creates version drift. All 7 Validate-Script version locations must be consistent.
@@ -526,13 +526,13 @@ Date: 2026-03-12
 
 ### Comment 3
 **File:** `tests/TestHarness.psm1:41`
-**Copilot Finding:** "`Find-FunctionInModule` reparses every `AzVMAvailability/Private/**/*.ps1` file on every lookup. Several test suites call `Get-MainScriptFunctionDefinition` in a loop (10+ functions), which makes this O(functions × files) parsing and can noticeably slow down the Pester run. Consider building a one-time cache (e.g., a hashtable mapping function name → definition text) the first time this helper is called and reusing it for subsequent lookups."
+**Copilot Finding:** "`Find-FunctionInModule` reparses every `AzVMLifecycle/Private/**/*.ps1` file on every lookup. Several test suites call `Get-MainScriptFunctionDefinition` in a loop (10+ functions), which makes this O(functions × files) parsing and can noticeably slow down the Pester run. Consider building a one-time cache (e.g., a hashtable mapping function name → definition text) the first time this helper is called and reusing it for subsequent lookups."
 **Assessment:** Agree
 **Reasoning:** With 34 module files and 10+ function lookups per test suite, re-parsing is wasteful. Module files don't change during test execution.
 **Action Taken:** Fixed — Added `$script:ModuleFunctionCache` hashtable populated on first call. All 34 files parsed once, subsequent lookups served from cache. O(files) once vs O(functions × files) per suite.
 
 ### Comment 4
-**File:** `Get-AzVMAvailability.ps1:627`
+**File:** `GET-AZVMLIFECYCLE.ps1:627`
 **Copilot Finding:** "`Import-Module` is invoked without `-ErrorAction Stop`. If the module import fails (parse error, missing dependency, etc.), PowerShell will emit a non-terminating error and this script will continue until it later fails with 'cmdlet not found'. Consider adding `-ErrorAction Stop`."
 **Assessment:** Agree
 **Reasoning:** Non-terminating error on module load would cascade into confusing downstream failures. Fail-fast is the correct behavior.
@@ -543,19 +543,19 @@ Date: 2026-03-12
 **Date:** 2026-03-21 | **Branch:** fix/revert-version-bump | **Commit:** 0385d39..f2b4a5e
 
 ### Comment 1
-**File:** `Get-AzVMAvailability.ps1:459`
+**File:** `GET-AZVMLIFECYCLE.ps1:459`
 **Copilot Finding:** "Reverting to 1.12.2 will break release automation (tag already exists)."
 **Assessment:** Agree
 **Action Taken:** Bumped to 1.12.3 instead.
 
 ### Comment 2
-**File:** `AzVMAvailability/AzVMAvailability.psd1:3`
+**File:** `AzVMLifecycle/AzVMLifecycle.psd1:3`
 **Copilot Finding:** "Rolling ModuleVersion back to 1.12.2 reuses already-released version."
 **Assessment:** Agree
 **Action Taken:** Set to 1.12.3 to keep versioning monotonic.
 
 ### Comment 3
-**File:** `Get-AzVMAvailability.ps1:460`
+**File:** `GET-AZVMLIFECYCLE.ps1:460`
 **Copilot Finding:** "PR says 1.12.2 but code is 1.12.3; auto-release will create v1.12.3 tag."
 **Assessment:** Agree (stale PR description)
 **Action Taken:** Updated PR description before merge.
@@ -571,37 +571,37 @@ Date: 2026-03-12
 **Date:** 2026-03-21 | **Branch:** fix/inline-function-fallback | **Commit:** e15f670..b9f3382
 
 ### Comment 1
-**File:** `Get-AzVMAvailability.ps1:1422`
+**File:** `GET-AZVMLIFECYCLE.ps1:1422`
 **Copilot Finding:** "Test-ImportExcelModule uses a silent catch. Add Write-Verbose."
 **Assessment:** Agree
 **Action Taken:** Fixed in both inline and module copies.
 
 ### Comment 2
-**File:** `Get-AzVMAvailability.ps1:2138`
+**File:** `GET-AZVMLIFECYCLE.ps1:2138`
 **Copilot Finding:** "Orphan #endregion Helper Functions and unclosed #region Image Compatibility Functions."
 **Assessment:** Agree
 **Action Taken:** Removed orphan markers from inline fallback block.
 
 ### Comment 3
-**File:** `Get-AzVMAvailability.ps1:629`
+**File:** `GET-AZVMLIFECYCLE.ps1:629`
 **Copilot Finding:** "Import-Module failure should fall back to inline instead of throwing."
 **Assessment:** Agree
 **Action Taken:** Wrapped Import-Module in try/catch with Write-Verbose on failure, falls through to inline definitions.
 
 ### Comment 4
-**File:** `Get-AzVMAvailability.ps1:2583`
+**File:** `GET-AZVMLIFECYCLE.ps1:2583`
 **Copilot Finding:** "Get-AzAccessToken missing -ErrorAction Stop in Get-AzActualPricing."
 **Assessment:** Agree
 **Action Taken:** Added -ErrorAction Stop. Fixed in both inline and module copies.
 
 ### Comment 5
-**File:** `Get-AzVMAvailability.ps1:2325`
+**File:** `GET-AZVMLIFECYCLE.ps1:2325`
 **Copilot Finding:** "Get-AzVMPricing doesn't check cache before calling Retail Prices API."
 **Assessment:** Agree
 **Action Taken:** Added early cache return. Fixed in both inline and module copies.
 
 ### Comment 6
-**File:** `Get-AzVMAvailability.ps1:633`
+**File:** `GET-AZVMLIFECYCLE.ps1:633`
 **Copilot Finding:** "No test to detect drift between module and inline function copies."
 **Assessment:** Defer
 **Reasoning:** Valid concern. Adding a drift-detection Pester test is a separate follow-up PR.
@@ -626,8 +626,8 @@ Date: 2026-03-12
 **Action Taken:** No code change. Reply posted on GitHub explaining rationale.
 
 ### Comment 3
-**File:** `AzVMAvailability/AzVMAvailability.psd1:65`
-**Copilot Finding:** "ReleaseNotes in the module manifest mentions 'inline function fallback for standalone single-file downloads', which is behavior of Get-AzVMAvailability.ps1 rather than the AzVMAvailability module itself."
+**File:** `AzVMLifecycle/AzVMLifecycle.psd1:65`
+**Copilot Finding:** "ReleaseNotes in the module manifest mentions 'inline function fallback for standalone single-file downloads', which is behavior of GET-AZVMLIFECYCLE.ps1 rather than the AzVMLifecycle module itself."
 **Assessment:** Partially Agree
 **Reasoning:** Valid point — the psd1 ReleaseNotes field should describe module-specific changes. However, the module is not published to PSGallery yet (local scaffold only). The ReleaseNotes provide useful context about the v1.12.4 release.
 **Action Taken:** Deferred to v2.0.0 when module ships to PSGallery. Reply posted on GitHub.
@@ -637,21 +637,21 @@ Date: 2026-03-12
 **Date:** 2026-03-27 | **Branch:** SubscriptionMapping | **Commit:** 93fcbd2
 
 ### Comment 1
-**File:** `Get-AzVMAvailability.ps1:559`
+**File:** `GET-AZVMLIFECYCLE.ps1:559`
 **Copilot Finding:** "Building the file-based deployment map expands each input row into $qty individual entries in $fileVMRows (one per VM) and then re-aggregates via Group-Object. This can blow up memory/time for large fleets. Instead, keep a single row with a Qty field and aggregate by grouping keys with a Qty sum."
 **Assessment:** Agree
 **Reasoning:** The for-loop `for ($q = 0; $q -lt $qty; $q++)` creates N individual objects per row then Group-Object recombines them. For large fleets (e.g., 10,000 VMs across 50 SKUs), this creates unnecessary object churn. Storing one row with a qty field and summing during aggregation is strictly better.
 **Action Taken:** Fixed — replaced per-qty row expansion with single row containing `qty` field. Aggregation now uses `($g.Group | Measure-Object -Property qty -Sum).Sum` instead of `$g.Count`.
 
 ### Comment 2
-**File:** `Get-AzVMAvailability.ps1:746`
+**File:** `GET-AZVMLIFECYCLE.ps1:746`
 **Copilot Finding:** "The subscription name lookup query isn't filtered to the subscriptions actually present in $allVMs ($subIds is computed but unused), and it only requests First=1000 with no pagination."
 **Assessment:** Partially Agree
 **Reasoning:** Filtering the ARG query to only present subscription IDs is a valid optimization — `$subIds` was already computed but unused in the query. However, pagination is unnecessary: subscription count per management group rarely exceeds 1000 (Azure itself limits to ~1000 subscriptions per tenant), and this is a lightweight metadata query, not a VM inventory query.
 **Action Taken:** Fixed — added `where subscriptionId in~ (...)` filter to the ARG query using `$subIds`. Pagination not added (subscription count well within First=1000 limit).
 
 ### Comment 3
-**File:** `Get-AzVMAvailability.ps1:5151`
+**File:** `GET-AZVMLIFECYCLE.ps1:5151`
 **Copilot Finding:** "When both -SubMap and -RGMap are specified, the implementation always chooses the RGMap path and only emits a single map sheet/object (RG takes precedence). This conflicts with the PR/CHANGELOG wording that both flags can be used together."
 **Assessment:** Agree
 **Reasoning:** The `if ($RGMap) { ... } else { ... }` pattern meant `-SubMap -RGMap` together only produced the RG map. The documented behavior ("both flags can be used together") was correct intent but not implemented.

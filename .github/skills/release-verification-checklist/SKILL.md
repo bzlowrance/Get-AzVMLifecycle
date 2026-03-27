@@ -27,16 +27,16 @@ description: Verify local script release readiness against upstream main (versio
 7) Execute a minimal non-interactive smoke run
 
 ## Useful commands
-- Version line: `Select-String -Path .\Get-AzVMAvailability.ps1 -Pattern '^\$ScriptVersion\s*=\s*"'`
+- Version line: `Select-String -Path .\GET-AZVMLIFECYCLE.ps1 -Pattern '^\$ScriptVersion\s*=\s*"'`
 - Runtime check: `$PSVersionTable.PSVersion; $PSVersionTable.PSEdition`
-- Guard check: `Select-String -Path .\Get-AzVMAvailability.ps1 -Pattern 'AzureEndpoints\s*=\s*\$null|Add-Member.+AzureEndpoints|RunContext\.AzureEndpoints'`
+- Guard check: `Select-String -Path .\GET-AZVMLIFECYCLE.ps1 -Pattern 'AzureEndpoints\s*=\s*\$null|Add-Member.+AzureEndpoints|RunContext\.AzureEndpoints'`
 - Upstream hash compare:
-  - `$u = "https://raw.githubusercontent.com/ZacharyLuz/Get-AzVMAvailability/main/Get-AzVMAvailability.ps1"`
-  - `$tmp = [System.IO.Path]::GetTempPath(); $remote = Join-Path -Path $tmp -ChildPath 'Get-AzVMAvailability.main.ps1'`
+  - `$u = "https://raw.githubusercontent.com/bzlowrance/Get-AzVMLifecycle/main/GET-AZVMLIFECYCLE.ps1"`
+  - `$tmp = [System.IO.Path]::GetTempPath(); $remote = Join-Path -Path $tmp -ChildPath 'GET-AZVMLIFECYCLE.main.ps1'`
   - `Invoke-WebRequest -Uri $u -OutFile $remote`
-  - `(Get-FileHash .\Get-AzVMAvailability.ps1).Hash`
+  - `(Get-FileHash .\GET-AZVMLIFECYCLE.ps1).Hash`
   - `(Get-FileHash $remote).Hash`
-- Smoke run: `pwsh -File .\Get-AzVMAvailability.ps1 -NoPrompt -Region eastus -FamilyFilter D -TopN 3`
+- Smoke run: `pwsh -File .\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Region eastus -FamilyFilter D -TopN 3`
 
 ## Notes
 - Keep this skill aligned with `docs/VERIFY-RELEASE.md`.

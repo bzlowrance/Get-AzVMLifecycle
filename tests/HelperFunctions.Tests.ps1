@@ -1,5 +1,5 @@
-# HelperFunctions.Tests.ps1
-# Pester tests for helper functions in Get-AzVMAvailability.ps1
+﻿# HelperFunctions.Tests.ps1
+# Pester tests for helper functions in GET-AZVMLIFECYCLE.ps1
 # Run with: Invoke-Pester .\tests\HelperFunctions.Tests.ps1 -Output Detailed
 
 BeforeAll {

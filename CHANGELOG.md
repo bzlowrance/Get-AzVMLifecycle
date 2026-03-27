@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Project rebranded from `Get-AzVMAvailability` to `Get-AzVMLifecycle`** — script, module directory, manifest, loader, skill directory, and all internal references renamed to reflect lifecycle management as the core capability. Upstream `Get-AzVMAvailability` remains the availability-focused tool; this fork diverges with lifecycle analysis, retirement tracking, upgrade paths, and deployment mapping.
+- GitHub URLs updated from `ZacharyLuz/Get-AzVMAvailability` to `bzlowrance/Get-AzVMLifecycle`
+- Module renamed from `AzVMAvailability` to `AzVMLifecycle`
+- Export file prefixes changed from `AzVMAvailability-*` to `AzVMLifecycle-*`
+- Copilot skill renamed from `azure-vm-availability` to `azure-vm-lifecycle`
+
 ## [1.14.0] - 2026-03-27
 
 ### Added
@@ -41,7 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.12.4] - 2026-03-21
 
 ### Fixed
-- Restored inline function fallback so single-file downloads work without the AzVMAvailability/ module directory
+- Restored inline function fallback so single-file downloads work without the AzVMLifecycle/ module directory
 - Added try/catch around Import-Module with graceful fallback to 34 inline function definitions
 - Fixed silent auth failure: Get-AzAccessToken now uses -ErrorAction Stop
 - Added cache check in Get-AzVMPricing to skip redundant API calls
@@ -50,13 +59,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.12.3] - 2026-03-21
 
 ### Changed
-- **Module scaffold:** Extracted all 34 functions from monolithic `Get-AzVMAvailability.ps1` into `AzVMAvailability/` module with Private/ subdirectory layout (#5)
-- Root script now imports `AzVMAvailability` module instead of defining functions inline (2,028 lines removed from main script)
+- **Module scaffold:** Extracted all 34 functions from monolithic `GET-AZVMLIFECYCLE.ps1` into `AzVMLifecycle/` module with Private/ subdirectory layout (#5)
+- Root script now imports `AzVMLifecycle` module instead of defining functions inline (2,028 lines removed from main script)
 - Removed dead `$script:CachedValidRegions` variable
 
 ### Added
-- `AzVMAvailability/AzVMAvailability.psd1` -- module manifest (declares Az module dependencies)
-- `AzVMAvailability/AzVMAvailability.psm1` -- dependency-ordered dot-source loader
+- `AzVMLifecycle/AzVMLifecycle.psd1` -- module manifest (declares Az module dependencies)
+- `AzVMLifecycle/AzVMLifecycle.psm1` -- dependency-ordered dot-source loader
 - 34 function files across `Private/Azure/`, `Private/SKU/`, `Private/Image/`, `Private/Fleet/`, `Private/Format/`, `Private/Utility/`
 - `Find-FunctionInModule` in TestHarness.psm1 -- module-aware function discovery with AST caching and parse error checking
 
@@ -143,7 +152,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.11.1] - 2026-03-12
 
 ### Added
-- Copilot skill (`.github/skills/azure-vm-availability/SKILL.md`) for AI agent integration -- teaches coding agents when and how to invoke Get-AzVMAvailability via terminal
+- Copilot skill (`.github/skills/azure-vm-lifecycle/SKILL.md`) for AI agent integration -- teaches coding agents when and how to invoke GET-AZVMLIFECYCLE via terminal
 - README "AI Agent Integration" section with example agent invocations and installation instructions
 
 ## [1.11.0] - 2026-03-12
@@ -441,10 +450,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Image requirements displayed at start of each family drill-down section
 
 ### Renamed
-- **Script renamed** from `Azure-VM-Capacity-Checker.ps1` to `Get-AzVMAvailability.ps1`
-- **Repository renamed** from `Azure-VM-Capacity-Checker` to `Get-AzVMAvailability`
-- Export filenames now use `AzVMAvailability-` prefix instead of `Azure-VM-Capacity-`
-- Default export folder changed to `C:\Temp\AzVMAvailability`
+- **Script renamed** from `Azure-VM-Capacity-Checker.ps1` to `GET-AZVMLIFECYCLE.ps1`
+- **Repository renamed** from `Azure-VM-Capacity-Checker` to `GET-AZVMLIFECYCLE`
+- Export filenames now use `AzVMLifecycle-` prefix instead of `Azure-VM-Capacity-`
+- Default export folder changed to `C:\Temp\AzVMLifecycle`
 
 ### Fixed
 - `-NoPrompt` now works correctly with `-EnableDrillDown` - auto-selects all families and SKUs

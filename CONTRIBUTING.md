@@ -1,4 +1,4 @@
-# Contributing to Get-AzVMAvailability
+# Contributing to GET-AZVMLIFECYCLE
 
 > **This is a personal open-source project, not an official Microsoft product.** Contributing here does not create any relationship with, or obligation for, Microsoft.
 > Please do not include confidential or internal information in issues, PRs, or discussions.
@@ -58,8 +58,8 @@ gh pr view <pr-number> --json body --jq .body
 ## Development Setup
 
     # Clone your fork
-    git clone https://github.com/zacharyluz/Get-AzVMAvailability.git
-    cd Get-AzVMAvailability
+    git clone https://github.com/bzlowrance/Get-AzVMLifecycle.git
+    cd GET-AZVMLIFECYCLE
 
     # Install dependencies
     Install-Module -Name Az.Compute -Scope CurrentUser
@@ -114,4 +114,4 @@ These are the required checklist references before release closeout.
 
 ## Questions?
 
-Feel free to [open an issue](https://github.com/ZacharyLuz/Get-AzVMAvailability/issues) on GitHub.
+Feel free to [open an issue](https://github.com/bzlowrance/Get-AzVMLifecycle/issues) on GitHub.
