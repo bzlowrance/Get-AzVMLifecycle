@@ -21,6 +21,10 @@ docs/*session-notes*
 
 # Personal AI workflow files (local tooling, not project documentation)
 copilot-standing-rules.md
+.specstory/
+
+# Build/test artifacts (local working files)
+/artifacts/
 
 # Temp files
 *.tmp
