@@ -238,8 +238,6 @@ with a forward-looking tone. Do not commit new files of this type.
 
 | Version | Theme | Status | Key Work |
 |---------|-------|--------|----------|
-| v1.12.0 | Inventory MVP | **Released** | `-Inventory` hashtable BOM validation, `Get-InventoryReadiness`, `Write-InventoryReadinessSummary`, fuzzy quota matching, used/available/limit display (originally shipped as `-Fleet`, aliases preserved) |
-| v1.12.1 | Inventory UX | **Released** | `-InventoryFile` CSV/JSON input, `-GenerateInventoryTemplate`, example files, README Quick Start, input validation (`-LiteralPath`, trim, qty guard) (originally `-FleetFile`/`-GenerateFleetTemplate`, aliases preserved) |
-| v2.0.0 | Module Conversion | Planned | Public/Private layout, PSGallery publishing, gate 349 Write-Host behind `-JsonOutput` (#65), pipeline composability, `exit` → `throw` |
-| v2.1.0 | MCP Server | Planned | 4 tools: `check_vm_availability`, `find_alternatives`, `get_vm_pricing`, `check_quota` — depends on v2.0.0 |
+| v2.0.0 | Lifecycle Focus + Rebrand | **In Progress** | Rebranded from Get-AzVMAvailability → Get-AzVMLifecycle. Simplified to 2-mode design: live ARG scan (default) + `-InputFile`. Removed `-Recommend`, `-Inventory`, `-InventoryFile`, `-EnableDrillDown`, `-FamilyFilter` modes. Module extraction (Public/Private layout). |
+| v2.1.0 | MCP Server | Planned | 4 tools: `check_vm_lifecycle`, `find_alternatives`, `get_vm_pricing`, `check_quota` — depends on v2.0.0 |
 | v2.2.0 | Proactive Monitoring | Planned | Watch mode, capacity alerts, Azure Monitor, Azure Functions |

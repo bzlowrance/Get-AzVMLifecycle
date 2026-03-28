@@ -1,11 +1,11 @@
 # GET-AZVMLIFECYCLE
 
-A PowerShell tool for checking Azure VM SKU availability across regions - find where your VMs can deploy.
+Azure VM lifecycle management — detect retiring SKUs, get upgrade recommendations, and plan migrations.
 
 ![PowerShell](https://img.shields.io/badge/PowerShell-7.0%2B-blue)
 ![Azure](https://img.shields.io/badge/Azure-Az%20Modules-0078D4)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Version](https://img.shields.io/badge/Version-1.14.0-brightgreen)
+![Version](https://img.shields.io/badge/Version-2.0.0-brightgreen)
 
 ## Disclosure & Disclaimer
 
@@ -18,44 +18,48 @@ The author is a Microsoft employee; however, this is a **personal open-source pr
 
 ## Overview
 
-GET-AZVMLIFECYCLE helps you identify which Azure regions have available capacity for your VM deployments. It scans multiple regions in parallel and provides detailed insights into SKU availability, zone restrictions, quota limits, pricing, and image compatibility.
+GET-AZVMLIFECYCLE analyzes your deployed Azure VMs for lifecycle risks and recommends migration paths. It identifies retiring, deprecated, and old-generation SKUs, then provides compatibility-validated replacement recommendations with capacity, quota, and pricing analysis.
+
+**Two modes of operation:**
+
+1. **Live scan (default)** — Queries Azure Resource Graph for deployed VMs and runs lifecycle analysis across all discovered regions. No file needed.
+2. **File-based (`-InputFile`)** — Accepts CSV, JSON, or XLSX files (including native Azure portal VM exports) for offline lifecycle analysis.
 
 ## Features
 
-- **Multi-Region Parallel Scanning** - Scan 10+ regions in ~15 seconds
-- **SKU Filtering** - Filter to specific SKUs with wildcard support (e.g., `Standard_D*_v5`)
-- **Pricing Information** - Show hourly/monthly pricing (retail or negotiated EA/MCA rates)
-- **Image Compatibility** - Verify Gen1/Gen2 and x64/ARM64 requirements
-- **Zone Availability** - Per-zone availability details
-- **Quota Tracking** - Available vCPU quota per family
-- **Multi-Region Matrix** - Color-coded comparison view
-- **Interactive Drill-Down** - Explore specific families and SKUs
-- **Export Options** - CSV and styled XLSX with conditional formatting
-- **Compatibility-Validated Recommendations** - Alternatives are validated to meet or exceed the target SKU's NICs, accelerated networking, premium IO, disk interface, ephemeral OS disk, and Ultra SSD requirements. Data disks and IOPS are scored as soft dimensions
+- **Retirement Detection** — Identifies SKUs on Microsoft's published retirement schedule with dates
+- **Upgrade Path Recommendations** — 3 curated paths (drop-in, future-proof, cost-optimized) + 2 weighted alternatives per SKU
+- **Compatibility Validation** — 12 hard requirements checked before any recommendation (vCPU, memory, NICs, accelerated networking, premium IO, disk interface, ephemeral OS, Ultra SSD)
+- **Quota-Aware Analysis** — Checks current usage vs. limits for both source and target SKU families, factoring in VM quantity
+- **Pricing Comparison** — PAYG, Savings Plan, and Reserved Instance pricing with fleet-wide cost projection
+- **Azure Portal Export Support** — Drop in an XLSX exported from the VM blade; column mapping is automatic
+- **Live Azure Scanning** — Pull VM inventory directly from Resource Graph with management group, resource group, and tag scoping
+- **Subscription & Resource Group Mapping** — Optional XLSX sheets showing VM deployment distribution
+- **Styled XLSX Reports** — Color-coded risk levels, conditional formatting, auto-filter columns
 
 ## Quick Comparison
 
-| Task                           | Azure Portal            | This Script          |
-| ------------------------------ | ----------------------- | -------------------- |
-| Check 10 regions               | ~5 minutes              | ~15 seconds          |
-| Get quota + availability       | Multiple blades         | Single view          |
-| Compare pricing across regions | Separate calculator     | Integrated           |
-| Filter to specific SKUs        | Scroll through hundreds | Wildcard filtering   |
-| Check image compatibility      | Manual research         | Automated validation |
-| Export results                 | Manual copy/paste       | One command          |
+| Task                                 | Azure Portal              | This Script               |
+| ------------------------------------ | ------------------------- | ------------------------- |
+| Find retiring SKUs in your fleet     | Manual research per SKU   | Automated scan            |
+| Get upgrade recommendations          | Read docs + cross-check   | Validated alternatives    |
+| Check quota for migration targets    | Multiple blades           | Single view               |
+| Compare pricing across replacements  | Separate calculator       | Integrated                |
+| Analyze 100+ VMs across regions      | Hours of manual work      | Minutes                   |
+| Export results for stakeholders      | Manual copy/paste         | One command               |
 
 ## Use Cases
 
-- **Disaster Recovery Planning** - Identify backup regions with capacity
-- **Multi-Region Deployments** - Find regions where all required SKUs are available
-- **GPU/HPC Workloads** - NC, ND, NV series are often constrained; find where they're available
-- **Image Compatibility** - Verify SKUs support your Gen2 or ARM64 images before deployment
-- **Troubleshooting Deployments** - Quickly identify why a deployment might be failing
+- **Retirement Planning** — Identify which VMs are running retiring or deprecated SKUs and get migration paths
+- **Fleet Modernization** — Find old-generation SKUs (v2, v3) and plan upgrades to current generation
+- **Cost Optimization** — Compare pricing across replacement SKUs including RI/SP savings
+- **Migration Validation** — Verify that target SKUs meet all compatibility requirements before migrating
+- **Compliance Reporting** — Generate XLSX reports showing fleet lifecycle risk for stakeholders
 
 ## Requirements
 
 - **PowerShell 7.0+** (required)
-- **Azure PowerShell Modules**: `Az.Compute`, `Az.Resources`
+- **Azure PowerShell Modules**: `Az.Compute`, `Az.Resources`, `Az.ResourceGraph`
 - **Optional**: `ImportExcel` module for styled XLSX export
 
 ## Supported Cloud Environments
@@ -69,18 +73,19 @@ The script automatically detects your Azure environment and uses the correct API
 | Azure China      | `AzureChinaCloud`   | ✅         |
 | Azure Germany    | `AzureGermanCloud`  | ✅         |
 
-**No configuration required** - the script reads your current `Az` context and resolves endpoints automatically.
+**No configuration required** — the script reads your current `Az` context and resolves endpoints automatically.
 
 ## Installation
 
 ```powershell
 # Clone the repository
 git clone https://github.com/bzlowrance/Get-AzVMLifecycle.git
-cd GET-AZVMLIFECYCLE
+cd Get-AzVMLifecycle
 
 # Install required Azure modules (if needed)
 Install-Module -Name Az.Compute -Scope CurrentUser
 Install-Module -Name Az.Resources -Scope CurrentUser
+Install-Module -Name Az.ResourceGraph -Scope CurrentUser
 
 # Optional: Install ImportExcel for styled exports
 Install-Module -Name ImportExcel -Scope CurrentUser
@@ -89,119 +94,151 @@ Install-Module -Name ImportExcel -Scope CurrentUser
 ## Quick Start
 
 ```powershell
-# Interactive mode - prompts for all options
-.\GET-AZVMLIFECYCLE.ps1
+# Live scan — pull VMs from Azure and analyze lifecycle risks
+.\GET-AZVMLIFECYCLE.ps1 -NoPrompt
 
-# Automated mode - uses current subscription
-.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Region "eastus","westus2"
+# Scan a specific subscription
+.\GET-AZVMLIFECYCLE.ps1 -SubscriptionId "xxxx-xxxx" -NoPrompt
 
-# With auto-export
-.\GET-AZVMLIFECYCLE.ps1 -Region "eastus","eastus2" -AutoExport
+# Scan a management group with tag filter
+.\GET-AZVMLIFECYCLE.ps1 -ManagementGroup "Production" -Tag @{Environment='prod'} -NoPrompt
 
-# Inventory readiness check from CSV file
-.\GET-AZVMLIFECYCLE.ps1 -InventoryFile .\examples\fleet-bom.csv -Region "eastus" -NoPrompt
+# File-based analysis from a CSV
+.\GET-AZVMLIFECYCLE.ps1 -InputFile .\my-vms.csv -Region "eastus" -NoPrompt
 
-# Lifecycle analysis — find old-gen SKUs and recommend replacements
-.\GET-AZVMLIFECYCLE.ps1 -LifecycleRecommendations .\my-vms.csv -Region "eastus" -NoPrompt
+# Analyze an Azure portal VM export with full pricing
+.\GET-AZVMLIFECYCLE.ps1 -InputFile .\AzureVirtualMachines.xlsx -ShowPricing -RateOptimization -NoPrompt
 
-# Lifecycle analysis — from Azure portal VM export (XLSX)
-.\GET-AZVMLIFECYCLE.ps1 -LifecycleRecommendations .\AzureVirtualMachines.xlsx -NoPrompt
+# Live scan with deployment maps and auto-export
+.\GET-AZVMLIFECYCLE.ps1 -SubMap -RGMap -AutoExport -NoPrompt
 
-# Live lifecycle scan — pull VM inventory directly from Azure
-.\GET-AZVMLIFECYCLE.ps1 -LifecycleScan -NoPrompt
-```
-
-## Usage Examples
-
-> **💡 Tip**: When copying multi-line commands, ensure backticks (`` ` ``) at the end of each line are preserved. If copying from GitHub, use the "Copy" button in code blocks.
-
-### Check Specific Regions
-```powershell
-.\GET-AZVMLIFECYCLE.ps1 -Region "eastus","westus2","centralus"
-```
-
-### Check GPU SKU Availability
-```powershell
-# Multi-line with backticks for readability
-.\GET-AZVMLIFECYCLE.ps1 `
-    -Region "eastus","eastus2","southcentralus" `
-    -FamilyFilter "NC","ND","NV"
-```
-
-### Export to Specific Location
-```powershell
-.\GET-AZVMLIFECYCLE.ps1 `
-    -ExportPath "C:\Reports" `
-    -AutoExport `
-    -OutputFormat XLSX
-```
-
-### Check Specific SKUs with Pricing
-```powershell
-# Pricing auto-detects negotiated rates (EA/MCA/CSP), falls back to retail
-.\GET-AZVMLIFECYCLE.ps1 `
-    -Region "eastus","westus2" `
-    -SkuFilter "Standard_D*_v5" `
-    -ShowPricing
-```
-
-### Full Parameter Example
-```powershell
-# Multi-line format with backticks for readability
-.\GET-AZVMLIFECYCLE.ps1 `
-    -SubscriptionId "your-subscription-id" `
-    -Region "eastus","westus2","centralus" `
-    -ExportPath "C:\Reports" `
-    -AutoExport `
-    -EnableDrillDown `
-    -FamilyFilter "D","E","M" `
-    -OutputFormat "XLSX" `
-    -UseAsciiIcons
+# JSON output for automation
+.\GET-AZVMLIFECYCLE.ps1 -JsonOutput -NoPrompt
 ```
 
 ## Parameters
 
-| Parameter               | Type     | Description                                                                                                               |
-| ----------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `-SubscriptionId`       | String[] | Azure subscription ID(s) to scan                                                                                          |
-| `-Region`               | String[] | Azure region code(s) (e.g., 'eastus', 'westus2')                                                                          |
-| `-RegionPreset`         | String   | Predefined region set (see table below). Auto-sets environment for sovereign clouds.                                      |
-| `-Environment`          | String   | Azure cloud (default: auto-detect). Options: AzureCloud, AzureUSGovernment, AzureChinaCloud, AzureGermanCloud             |
-| `-ExportPath`           | String   | Directory for export files                                                                                                |
-| `-AutoExport`           | Switch   | Export without prompting                                                                                                  |
-| `-EnableDrillDown`      | Switch   | Interactive family/SKU exploration                                                                                        |
-| `-FamilyFilter`         | String[] | Filter to specific VM families                                                                                            |
-| `-SkuFilter`            | String[] | Filter to specific SKUs (supports wildcards)                                                                              |
-| `-ShowPricing`          | Switch   | Show pricing (auto-detects negotiated EA/MCA/CSP rates, falls back to retail)                                             |
-| `-RateOptimization`     | Switch   | Include Savings Plan and Reserved Instance savings columns in lifecycle reports. Requires `-ShowPricing`. Shows fleet-wide savings vs PAYG for each commitment term |
-| `-ImageURN`             | String   | Check SKU compatibility with image (format: Publisher:Offer:Sku:Version)                                                  |
-| `-CompactOutput`        | Switch   | Use compact output for narrow terminals                                                                                   |
-| `-NoPrompt`             | Switch   | Skip interactive prompts                                                                                                  |
-| `-OutputFormat`         | String   | 'Auto', 'CSV', or 'XLSX'                                                                                                  |
-| `-UseAsciiIcons`        | Switch   | Force ASCII instead of Unicode icons                                                                                      |
-| `-Recommend`            | String   | Find alternatives for a target SKU. Works interactively too — prompted after scan/drill-down if not specified             |
-| `-TopN`                 | Int      | Number of alternatives to return in Recommend mode (default 5, max 25)                                                    |
-| `-MinvCPU`              | Int      | Minimum vCPU count filter for recommended alternatives (optional)                                                         |
-| `-MinMemoryGB`          | Int      | Minimum memory (GB) filter for recommended alternatives (optional)                                                        |
-| `-MinScore`             | Int      | Minimum similarity score (0-100) for recommended alternatives; set 0 to show all (default 50)                             |
-| `-JsonOutput`           | Switch   | Emit structured JSON for the [AzVMAvailability-Agent](https://github.com/ZacharyLuz/AzVMAvailability-Agent) or automation |
-| `-SkipRegionValidation` | Switch   | Skip Azure region metadata validation (use only when Azure metadata lookup is unavailable)                                |
-| `-Inventory`            | Hashtable| Inventory BOM as hashtable: `@{'Standard_D2s_v5'=17; 'Standard_D4s_v5'=4}` — validates capacity + quota for entire inventory     |
-| `-InventoryFile`        | String   | Path to CSV or JSON file with inventory BOM. CSV: columns `SKU,Qty`. JSON: array of `{"SKU":"...","Qty":N}` objects. Easiest input method for spreadsheet users |
-| `-GenerateInventoryTemplate`| Switch   | Creates `inventory-template.csv` and `inventory-template.json` in the current directory, then exits. No Azure login required |
-| `-LifecycleRecommendations`| String  | Path to CSV, JSON, or XLSX file listing current VM SKUs (column: SKU/Size/VmSize, optional: Region, Qty). XLSX files exported from the Azure portal VM blade are supported natively. Runs compatibility-validated recommendations with quantity-aware quota analysis |
-| `-LifecycleScan`        | Switch   | Pull live VM inventory from Azure via Resource Graph for lifecycle analysis. No file required — queries all deployed VMs from your tenant. Requires `Az.ResourceGraph` module |
-| `-ManagementGroup`      | String[] | Scope `-LifecycleScan` to specific management group(s) for cross-subscription scanning |
-| `-ResourceGroup`        | String[] | Filter `-LifecycleScan` to specific resource group(s) |
-| `-Tag`                  | Hashtable| Filter `-LifecycleScan` to VMs with specific tags. Hashtable of key=value pairs (e.g., `@{Environment='prod'}`). Use `'*'` as value to match any VM that has the tag key regardless of value |
-
-> **Backward compatibility:** The previous parameter names `-Fleet`, `-FleetFile`, and `-GenerateFleetTemplate` still work as aliases.
+| Parameter               | Type       | Description                                                                                                               |
+| ----------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `-SubscriptionId`       | String[]   | Azure subscription ID(s) to scan                                                                                          |
+| `-Region`               | String[]   | Azure region code(s) (e.g., 'eastus', 'westus2'). Auto-detected from deployed VMs in live scan mode. Required for `-InputFile` when the file lacks Region data |
+| `-RegionPreset`         | String     | Predefined region set (see table below). Auto-sets environment for sovereign clouds                                       |
+| `-InputFile`            | String     | Path to CSV, JSON, or XLSX file listing VM SKUs. CSV: column SKU (or Size/VmSize). JSON: array of `{"SKU":"..."}` objects. Qty and Region columns are optional. Supports native Azure portal VM exports (XLSX) |
+| `-ManagementGroup`      | String[]   | Scope live scan to specific management group(s) for cross-subscription scanning                                           |
+| `-ResourceGroup`        | String[]   | Filter live scan to specific resource group(s)                                                                            |
+| `-Tag`                  | Hashtable  | Filter live scan to VMs with specific tags, e.g. `@{Environment='prod'}`. Use `'*'` as value to match any VM with the tag key |
+| `-SubMap`               | Switch     | Add a 'Subscription Map' sheet to the XLSX export showing VM distribution                                                 |
+| `-RGMap`                | Switch     | Add a 'Resource Group Map' sheet to the XLSX export                                                                       |
+| `-ShowPricing`          | Switch     | Show hourly/monthly pricing (auto-detects negotiated EA/MCA/CSP rates, falls back to retail)                              |
+| `-ShowSpot`             | Switch     | Include Spot VM pricing when pricing is enabled                                                                           |
+| `-RateOptimization`     | Switch     | Include Savings Plan and Reserved Instance savings columns. Requires `-ShowPricing`                                        |
+| `-ShowPlacement`        | Switch     | Show allocation likelihood scores from Azure placement API                                                                |
+| `-NoQuota`              | Switch     | Skip quota checks (use when analyzing a customer extract without subscription access)                                     |
+| `-SkuFilter`            | String[]   | Filter to specific SKUs (supports wildcards, e.g. `Standard_D*_v5`)                                                      |
+| `-ImageURN`             | String     | Check SKU compatibility with a VM image (format: Publisher:Offer:Sku:Version)                                             |
+| `-TopN`                 | Int        | Number of alternative SKUs to return per SKU (default 5, max 25)                                                          |
+| `-MinScore`             | Int        | Minimum similarity score (0-100) for alternatives; set 0 to show all (default 50)                                         |
+| `-MinvCPU`              | Int        | Minimum vCPU count filter for alternatives                                                                                |
+| `-MinMemoryGB`          | Int        | Minimum memory (GB) filter for alternatives                                                                               |
+| `-ExportPath`           | String     | Directory for export files                                                                                                |
+| `-AutoExport`           | Switch     | Export without prompting                                                                                                  |
+| `-OutputFormat`         | String     | 'Auto', 'CSV', or 'XLSX'                                                                                                  |
+| `-JsonOutput`           | Switch     | Emit structured JSON for automation                                                                                       |
+| `-NoPrompt`             | Switch     | Skip all interactive prompts                                                                                              |
+| `-CompactOutput`        | Switch     | Use compact output for narrow terminals                                                                                   |
+| `-UseAsciiIcons`        | Switch     | Force ASCII instead of Unicode icons                                                                                      |
+| `-Environment`          | String     | Azure cloud (default: auto-detect). Options: AzureCloud, AzureUSGovernment, AzureChinaCloud, AzureGermanCloud             |
+| `-SkipRegionValidation` | Switch     | Skip Azure region metadata validation                                                                                    |
 
 > **Tuning tip:** Use `-MinScore 0` to see all candidates when capacity is tight, or raise it (e.g., 70) to prioritize closer matches.
 
+## Lifecycle Analysis
+
+### Input Options
+
+**Option 1: Live scan from Azure (default — no file needed)**
+
+```powershell
+# Scan current subscription
+.\GET-AZVMLIFECYCLE.ps1 -NoPrompt
+
+# Scan specific subscriptions
+.\GET-AZVMLIFECYCLE.ps1 -SubscriptionId "sub-id-1","sub-id-2" -NoPrompt
+
+# Scan an entire management group (all child subscriptions)
+.\GET-AZVMLIFECYCLE.ps1 -ManagementGroup "mg-production" -NoPrompt
+
+# Scan specific resource groups
+.\GET-AZVMLIFECYCLE.ps1 -SubscriptionId "sub-id" -ResourceGroup "rg-app","rg-data" -NoPrompt
+
+# Scan only VMs tagged with Environment=prod
+.\GET-AZVMLIFECYCLE.ps1 -Tag @{Environment='prod'} -NoPrompt
+
+# Combine filters
+.\GET-AZVMLIFECYCLE.ps1 -SubscriptionId "sub-id" -Tag @{CostCenter='12345'; Environment='prod'} -NoPrompt
+
+# Scan all VMs that have a "Department" tag (any value)
+.\GET-AZVMLIFECYCLE.ps1 -Tag @{Department='*'} -NoPrompt
+```
+
+Requires the `Az.ResourceGraph` module (`Install-Module Az.ResourceGraph -Scope CurrentUser`).
+
+> **Scoping rules:** `-ManagementGroup` and `-SubscriptionId` are mutually exclusive. `-ResourceGroup` and `-Tag` can be combined with either. If neither is specified, the current subscription context is used.
+
+**Option 2: From a CSV/JSON file**
+
+```csv
+SKU,Region,Qty
+Standard_D4s_v3,eastus,10
+Standard_E8s_v3,westus2,5
+Standard_F4s_v2,eastus,3
+Standard_D8s_v5,centralus,20
+```
+
+All columns except **SKU** are optional:
+- **Region** — where the SKU is deployed. Regions are auto-merged into the scan.
+- **Qty** — number of VMs (defaults to 1). Used for quota analysis. Duplicate SKU+Region rows are aggregated.
+
+> **Column names are flexible:** `SKU`, `Size`, or `VmSize` (falls back to `Name`) for the SKU column; `Region`, `Location`, or `AzureRegion` for region; `Qty`, `Quantity`, or `Count` for quantity.
+
+```powershell
+.\GET-AZVMLIFECYCLE.ps1 -InputFile .\my-vms.csv -Region "eastus" -NoPrompt
+```
+
+**Option 3: From an Azure portal export (XLSX)**
+
+Export from the Azure portal (Virtual Machines blade → Export to CSV/Excel) and pass the file directly:
+
+```powershell
+.\GET-AZVMLIFECYCLE.ps1 -InputFile .\AzureVirtualMachines.xlsx -NoPrompt
+```
+
+The parser maps `SIZE` → SKU and `LOCATION` → Region, converts display names (e.g., "West US" → `westus`), and aggregates one-VM-per-row into quantities. Requires the `ImportExcel` module.
+
+### What You Get
+
+For each SKU:
+1. **Hybrid recommendations (3 curated + 2 weighted)** — Up to 5 alternatives per SKU:
+   - **3 upgrade path recommendations** from a curated knowledge base ([`data/UpgradePath.json`](data/UpgradePath.json)) based on Microsoft's official migration guidance:
+     - `Upgrade: Drop-in` — lowest risk replacement (e.g., Dsv5 for Dv2)
+     - `Upgrade: Future-proof` — latest generation (e.g., Dsv6 with NVMe)
+     - `Upgrade: Cost-optimized` — AMD/alternative architecture at lower cost
+   - **2 weighted recommendations** from the real-time scoring engine, validated against region availability, capacity, and quota
+2. **Lifecycle risk assessment** — High / Medium / Low
+3. **Quota analysis** — current usage vs. limit for source and target SKU families, factoring in VM quantity
+4. **Details column** — explains *why* each recommendation was selected
+5. **Consolidated summary table** with VM-count-aware totals (e.g., "3 SKU(s) (35 VMs) at HIGH risk")
+
+The upgrade path knowledge base covers 19 VM families (11 retired, 8 scheduled for retirement) with vCPU-matched size maps. See [`data/UpgradePath.md`](data/UpgradePath.md) for the full reference.
+
+**Risk levels:**
+- **High** — Retired/retiring SKU, capacity issues, quota insufficient, or no compatible alternatives
+- **Medium** — Old generation (v3 or below); plan migration to current generation
+- **Low** — Current generation with good availability and sufficient quota
+
 ### Compatibility Gate
 
-Recommendations are **compatibility-validated** before scoring. A candidate SKU is only shown if it meets or exceeds the target on every critical dimension:
+Recommendations are **compatibility-validated** before scoring. A candidate SKU must meet or exceed the target on every critical dimension:
 
 | Dimension | Rule |
 |-----------|------|
@@ -214,7 +251,7 @@ Recommendations are **compatibility-validated** before scoring. A candidate SKU 
 | Ephemeral OS disk | Required if target supports it |
 | Ultra SSD | Required if target has it |
 
-After passing the compatibility gate, candidates are ranked by an 8-dimension similarity score:
+After passing, candidates are ranked by an 8-dimension similarity score:
 
 | Dimension | Weight |
 |-----------|--------|
@@ -227,167 +264,28 @@ After passing the compatibility gate, candidates are ranked by an 8-dimension si
 | Data disk count closeness | 7 pts |
 | Premium IO match | 5 pts |
 
-## Inventory Planning Quick Start
-
-Validate whether your entire VM deployment can be provisioned in a target region.
-
-### Step 1: Create your inventory file
-
-**Option A — Generate a template** (easiest):
-```powershell
-.\GET-AZVMLIFECYCLE.ps1 -GenerateInventoryTemplate
-# Creates inventory-template.csv and inventory-template.json in current directory
-# Edit with your actual SKUs and quantities
-```
-
-**Option B — Write a CSV** (Excel / text editor):
-```csv
-SKU,Qty
-Standard_D2s_v5,17
-Standard_D4s_v5,4
-Standard_D8s_v5,5
-```
-
-**Option C — Write a JSON file**:
-```json
-[
-  { "SKU": "Standard_D2s_v5", "Qty": 17 },
-  { "SKU": "Standard_D4s_v5", "Qty": 4 },
-  { "SKU": "Standard_D8s_v5", "Qty": 5 }
-]
-```
-
-> **Column names are flexible:** `SKU`, `Name`, or `VmSize` for the SKU column; `Qty`, `Quantity`, or `Count` for quantity. Duplicate SKU rows are summed automatically. The `Standard_` prefix is optional.
-
-### Step 2: Run the scan
-
-```powershell
-.\GET-AZVMLIFECYCLE.ps1 -InventoryFile .\inventory-template.csv -Region "eastus" -NoPrompt
-```
-
-### Step 3: Read the verdict
-
-The output shows per-SKU capacity status, per-family quota pass/fail (Used/Available/Limit), and an overall **PASS/FAIL** verdict.
-
-## Lifecycle Recommendations
-
-Analyze your current VM inventory to identify SKUs that need lifecycle planning (old generation, capacity-constrained, or deprecated) and get compatibility-validated replacement recommendations for each.
-
-### Option 1: From a CSV/JSON file
-
-```csv
-SKU,Region,Qty
-Standard_D4s_v3,eastus,10
-Standard_E8s_v3,westus2,5
-Standard_F4s_v2,eastus,3
-Standard_D8s_v5,centralus,20
-```
-
-All columns except **SKU** are optional:
-- **Region** — where the SKU is deployed. When provided, capacity and quota are checked specifically in that region. Regions are auto-merged into the scan.
-- **Qty** — number of VMs using this SKU (defaults to 1). Used to calculate required vCPUs for quota analysis. Duplicate SKU+Region rows have their quantities aggregated.
-
-Minimal format (SKU only):
-
-```csv
-SKU
-Standard_D4s_v3
-Standard_E8s_v3
-Standard_F4s_v2
-```
-
-> **Column names are flexible:** `SKU`, `Size`, or `VmSize` (falls back to `Name`) for the SKU column; `Region`, `Location`, or `AzureRegion` for region; `Qty`, `Quantity`, or `Count` for quantity.
-
-```powershell
-.\GET-AZVMLIFECYCLE.ps1 -LifecycleRecommendations .\my-vms.csv -Region "eastus" -NoPrompt
-```
-
-### Option 2: From an Azure portal export (XLSX)
-
-Export your VM list directly from the Azure portal (Virtual Machines blade → Export to CSV/Excel) and pass the XLSX file with no reformatting:
-
-```powershell
-.\GET-AZVMLIFECYCLE.ps1 -LifecycleRecommendations .\AzureVirtualMachines.xlsx -NoPrompt
-```
-
-The parser automatically maps the `SIZE` column to SKU and `LOCATION` to Region, converts display names (e.g., "West US" → `westus`, "USGov Virginia" → `usgovvirginia`), and aggregates one-VM-per-row into SKU+Region quantities. Requires the `ImportExcel` module.
-
-### Option 3: Live scan from Azure (no file needed)
-
-Pull your VM inventory directly from Azure using Resource Graph:
-
-```powershell
-# Scan current subscription
-.\GET-AZVMLIFECYCLE.ps1 -LifecycleScan -NoPrompt
-
-# Scan specific subscriptions
-.\GET-AZVMLIFECYCLE.ps1 -LifecycleScan -SubscriptionId "sub-id-1","sub-id-2" -NoPrompt
-
-# Scan an entire management group (all child subscriptions)
-.\GET-AZVMLIFECYCLE.ps1 -LifecycleScan -ManagementGroup "mg-production" -NoPrompt
-
-# Scan specific resource groups within a subscription
-.\GET-AZVMLIFECYCLE.ps1 -LifecycleScan -SubscriptionId "sub-id" -ResourceGroup "rg-app","rg-data" -NoPrompt
-
-# Scan only VMs tagged with Environment=prod
-.\GET-AZVMLIFECYCLE.ps1 -LifecycleScan -Tag @{Environment='prod'} -NoPrompt
-
-# Combine tag filter with subscription and resource group
-.\GET-AZVMLIFECYCLE.ps1 -LifecycleScan -SubscriptionId "sub-id" -Tag @{CostCenter='12345'; Environment='prod'} -NoPrompt
-
-# Scan all VMs that have a "Department" tag (any value)
-.\GET-AZVMLIFECYCLE.ps1 -LifecycleScan -Tag @{Department='*'} -NoPrompt
-```
-
-Requires the `Az.ResourceGraph` module (`Install-Module Az.ResourceGraph -Scope CurrentUser`).
-
-> **Scoping rules:** `-ManagementGroup` and `-SubscriptionId` are mutually exclusive. `-ResourceGroup` and `-Tag` can be combined with either. If neither is specified, the current subscription context is used.
-
-### What you get
-
-For each SKU in your list:
-1. **Hybrid recommendations (3 AI + 2 weighted)** — Up to 5 alternatives per SKU using a two-tier strategy:
-   - **3 upgrade path recommendations** from a curated knowledge base ([`data/UpgradePath.json`](data/UpgradePath.json)) based on Microsoft's official migration guidance:
-     - `Upgrade: Drop-in` — lowest risk replacement (e.g., Dsv5 for Dv2)
-     - `Upgrade: Future-proof` — latest generation (e.g., Dsv6 with NVMe)
-     - `Upgrade: Cost-optimized` — AMD/alternative architecture at lower cost
-   - **2 weighted recommendations** from the real-time 8-dimension scoring engine, validated against actual region availability, capacity, and quota
-2. **Lifecycle risk assessment** — High / Medium / Low risk classification
-3. **Quota analysis** — current quota usage vs. limit for both the target SKU family and the recommended replacement's family, factoring in VM quantity (Qty × vCPUs)
-4. **Details column** — explains *why* each recommendation was selected (upgrade path rationale, family/version context, IOPS guarantees, resize impact, requirements like Gen2 OS or NVMe)
-5. **Consolidated summary table** — all SKUs with Qty, region, risk level, quota status, and top replacement
-6. **VM-count-aware summary** — footer shows total VM count at each risk level (e.g., "3 SKU(s) (35 VMs) at HIGH risk")
-
-The upgrade path knowledge base covers 19 VM families (11 retired, 8 scheduled for retirement) with vCPU-matched size maps. See [`data/UpgradePath.md`](data/UpgradePath.md) for the full reference.
-
-Risk levels:
-- **High** — Retired/retiring SKU, capacity issues, quota insufficient, or no compatible alternatives found
-- **Medium** — Old generation (v3 or below); plan migration to current generation
-- **Low** — Current generation with good availability and sufficient quota
-
 ### Pricing in Lifecycle Reports
 
-By default, lifecycle reports include only PAYG (pay-as-you-go) cost columns when `-ShowPricing` is used:
+By default, lifecycle reports include only PAYG cost columns when `-ShowPricing` is used:
 
 ```powershell
-# PAYG pricing only (Price Diff, Total, 1-Year Cost, 3-Year Cost)
-.\GET-AZVMLIFECYCLE.ps1 -LifecycleRecommendations .\my-vms.csv -ShowPricing -NoPrompt
+.\GET-AZVMLIFECYCLE.ps1 -InputFile .\my-vms.csv -ShowPricing -NoPrompt
 ```
 
-To include Savings Plan (SP) and Reserved Instance (RI) savings columns, add `-RateOptimization`:
+Add `-RateOptimization` for Savings Plan (SP) and Reserved Instance (RI) savings columns:
 
 ```powershell
-# Full pricing: PAYG + SP/RI savings vs PAYG fleet total
-.\GET-AZVMLIFECYCLE.ps1 -LifecycleRecommendations .\my-vms.csv -ShowPricing -RateOptimization -NoPrompt
+# Full pricing: PAYG + SP/RI savings
+.\GET-AZVMLIFECYCLE.ps1 -InputFile .\my-vms.csv -ShowPricing -RateOptimization -NoPrompt
 
-# Live scan with rate optimization and auto-export to XLSX
-.\GET-AZVMLIFECYCLE.ps1 -LifecycleScan -ShowPricing -RateOptimization -AutoExport -NoPrompt
+# Live scan with rate optimization
+.\GET-AZVMLIFECYCLE.ps1 -ShowPricing -RateOptimization -AutoExport -NoPrompt
 
-# Azure portal export with full pricing comparison
-.\GET-AZVMLIFECYCLE.ps1 -LifecycleRecommendations .\AzureVirtualMachines.xlsx -ShowPricing -RateOptimization -NoQuota -AutoExport
+# Azure portal export with full pricing
+.\GET-AZVMLIFECYCLE.ps1 -InputFile .\AzureVirtualMachines.xlsx -ShowPricing -RateOptimization -NoQuota -AutoExport
 ```
 
-With `-RateOptimization`, the XLSX report adds 4 savings columns: `SP 1-Year Savings`, `SP 3-Year Savings`, `RI 1-Year Savings`, `RI 3-Year Savings` — showing how much the fleet saves compared to PAYG by committing to each term.
+With `-RateOptimization`, the XLSX report adds 4 savings columns: `SP 1-Year Savings`, `SP 3-Year Savings`, `RI 1-Year Savings`, `RI 3-Year Savings`.
 
 ## Region Presets
 
@@ -416,17 +314,14 @@ Use `-RegionPreset` for quick access to common region sets:
 ### Examples
 
 ```powershell
-# Quick US East/West scan
+# Quick US East/West lifecycle scan
 .\GET-AZVMLIFECYCLE.ps1 -RegionPreset USEastWest -NoPrompt
 
 # Top 5 US regions
 .\GET-AZVMLIFECYCLE.ps1 -RegionPreset USMajor -NoPrompt
 
-# DR planning for Azure Site Recovery
-.\GET-AZVMLIFECYCLE.ps1 -RegionPreset ASR-EastWest -FamilyFilter "D","E" -ShowPricing
-
-# European regions with export
-.\GET-AZVMLIFECYCLE.ps1 -RegionPreset Europe -AutoExport
+# European regions with auto-export
+.\GET-AZVMLIFECYCLE.ps1 -RegionPreset Europe -AutoExport -NoPrompt
 
 # Azure Government (environment auto-detected)
 .\GET-AZVMLIFECYCLE.ps1 -RegionPreset USGov -NoPrompt
@@ -435,7 +330,7 @@ Use `-RegionPreset` for quick access to common region sets:
 .\GET-AZVMLIFECYCLE.ps1 -RegionPreset China -NoPrompt
 ```
 
-> **Note**: Maximum 5 regions per scan for optimal performance and readability. Presets are limited accordingly. Lifecycle modes (`-LifecycleRecommendations`, `-LifecycleScan`) are exempt — all deployed regions are scanned automatically.
+> **Note**: Region presets apply when using `-Region` or `-RegionPreset`. In live scan mode (default), regions are auto-detected from deployed VMs.
 
 ### Manual Region Specification
 
@@ -446,181 +341,42 @@ You can still specify regions manually for custom scenarios:
 | **Custom regions** | `-Region "eastus","westus2","centralus"` |
 | **Single region**  | `-Region "eastus"`                       |
 
-## Image Compatibility Checking
+## Image Compatibility
 
-The script can verify which VM SKUs are compatible with specific Azure Marketplace images, checking Generation (Gen1/Gen2) and Architecture (x64/ARM64) requirements.
-
-### Option 1: Interactive Search (Recommended for Discovery)
-
-Run the script **without** `-NoPrompt` and **without** `-ImageURN`:
+Use `-ImageURN` to verify SKU compatibility with a specific Azure Marketplace image (Gen1/Gen2 and x64/ARM64 requirements):
 
 ```powershell
-.\GET-AZVMLIFECYCLE.ps1 -Region eastus -EnableDrillDown
-```
-
-When prompted **"Check SKU compatibility with a specific VM image?"**, answer `y`, then you'll see options:
-
-```
-Select image (1-16, custom, search, or Enter to skip): search
-```
-
-Type **`search`** and enter keywords like:
-- `ubuntu` - finds Ubuntu images
-- `dsvm` or `data science` - finds Data Science VMs
-- `windows` - finds Windows Server images
-- `rhel` - finds Red Hat images
-- `mariner` - finds Azure Linux (CBL-Mariner)
-
-The script queries Azure Marketplace and shows matching publishers/offers, then lets you drill down to pick a specific SKU.
-
-### Option 2: Common Images Quick-Pick
-
-The interactive prompt shows **16 pre-defined common images** organized by category:
-
-| Category     | Images                                             |
-| ------------ | -------------------------------------------------- |
-| Linux        | Ubuntu 22.04/24.04, RHEL 9, Debian 12, Azure Linux |
-| Windows      | Server 2022, Server 2019, Windows 11               |
-| Data Science | DSVM Ubuntu/Windows, Azure ML Workstation          |
-| HPC          | Ubuntu HPC, AlmaLinux HPC                          |
-| Gen1 Legacy  | Ubuntu 22.04 Gen1, Windows Server 2022 Gen1        |
-
-Just type `1-16` to pick one directly, or type `custom` to enter a full URN manually.
-
-### Option 3: Direct URN Parameter
-
-If you already know the image URN, pass it directly:
-
-```powershell
-# Check ARM64 compatibility for Ubuntu ARM64 image
+# Check ARM64 compatibility
 .\GET-AZVMLIFECYCLE.ps1 `
-    -Region "eastus","westus2" `
+    -InputFile .\my-vms.csv `
     -ImageURN "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-arm64:latest" `
-    -SkuFilter "Standard_D*ps*"
+    -NoPrompt
 
-# Check Gen2 compatibility for Windows Server 2022
+# Check Gen2 compatibility
 .\GET-AZVMLIFECYCLE.ps1 `
-    -Region "eastus" `
     -ImageURN "MicrosoftWindowsServer:WindowsServer:2022-datacenter-g2:latest" `
-    -EnableDrillDown
+    -NoPrompt
 ```
 
-### Option 4: Combine with SKU Wildcards
+When an image is specified, recommendations are further filtered to only include SKUs compatible with that image.
 
-Use `-SkuFilter` with wildcards to find specific VM types compatible with your image:
-
-```powershell
-# Find all ARM64-compatible D-series SKUs for ARM64 Ubuntu
-.\GET-AZVMLIFECYCLE.ps1 `
-    -Region "eastus" `
-    -SkuFilter "Standard_D*ps*" `
-    -ImageURN "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-arm64:latest"
-```
-
-### Interactive Search Flow Example
-
-```
-Check SKU compatibility with a specific VM image? (y/N): y
-
-COMMON VM IMAGES:
--------------------------------------------------------------------------------------
-#    Image Name                               Gen    Arch    Category
--------------------------------------------------------------------------------------
-1    Ubuntu 22.04 LTS (Gen2)                  Gen2   x64     Linux
-2    Ubuntu 24.04 LTS (Gen2)                  Gen2   x64     Linux
-3    Ubuntu 22.04 ARM64                       Gen2   ARM64   Linux
-...
-16   Windows Server 2022 (Gen1)               Gen1   x64     Gen1
--------------------------------------------------------------------------------------
-Or type: 'custom' for manual URN | 'search' to browse Azure Marketplace | Enter to skip
-
-Select image (1-16, custom, search, or Enter to skip): search
-
-Enter search term (e.g., 'ubuntu', 'data science', 'windows', 'dsvm'): data science
-Searching Azure Marketplace...
-
-Results matching 'data science':
-   1. [Offer    ] microsoft-dsvm > ubuntu-2204
-   2. [Offer    ] microsoft-dsvm > dsvm-win-2022
-
-Select (1-2) or Enter to skip: 1
-...
-Selected: microsoft-dsvm:ubuntu-2204:2204-gen2:latest
-```
-
-### Image Compatibility Output
-
-When an image is specified, the drill-down view shows additional columns:
-
-| Column | Description                                       |
-| ------ | ------------------------------------------------- |
-| Gen    | SKU's supported generations (1, 2, or 1,2)        |
-| Arch   | SKU's CPU architecture (x64 or Arm64)             |
-| Img    | Compatibility: ✓ (compatible) or ✗ (incompatible) |
-
-SKUs that are available but **incompatible** with your image are shown in dark yellow to help you quickly identify the issue.
-
-## Output
-
-### Console Output (with Pricing)
-```
-====================================================================================
-GET-AZVMLIFECYCLE v1.14.0
-====================================================================================
-SKU Filter: Standard_D2s_v5 | Pricing: Enabled
-
-REGION: eastus
-====================================================================================
-
-SKU FAMILIES:
-Family    SKUs  OK   Largest       Zones            Status     Quota   $/Hr    $/Mo
-------------------------------------------------------------------------------------
-D         1     0    2vCPU/8GB     ⚠ Zones 1,2,3   LIMITED    100     $0.10   $70
-
-====================================================================================
-MULTI-REGION CAPACITY MATRIX
-====================================================================================
-
-Family     | eastus          | eastus2
-------------------------------------------------------------------------------------
-D          | ⚠ LIMITED       | ✓ OK
-```
-
-### Pricing (Auto-Detection)
+## Pricing Detection
 
 With `-ShowPricing`, the script automatically detects the best pricing source:
 
-1. **First, tries negotiated pricing** (EA/MCA/CSP)
-   - Uses Azure Cost Management API
-   - Requires Billing Reader or Cost Management Reader role
-   - Shows your actual discounted rates
+1. **Negotiated pricing** (EA/MCA/CSP) — Uses Azure Cost Management API. Requires Billing Reader or Cost Management Reader role. Shows your actual discounted rates.
+2. **Retail fallback** — Uses the public Azure Retail Prices API. No special permissions required. Shows Linux pay-as-you-go rates.
 
-2. **Falls back to retail pricing** if negotiated rates unavailable
-   - Uses the public Azure Retail Prices API
-   - No special permissions required
-   - Shows Linux pay-as-you-go rates
+## Excel Export
 
-> **Note**: You'll see which pricing source is being used in the console output.
-
-### Excel Export
-- Color-coded status cells (green/yellow/red)
+- Color-coded risk levels (green/yellow/red)
 - Filterable columns with auto-filter
-- Alternating row colors
-- Azure-blue header styling
-
-## Status Legend
-
-| Icon | Status               | Description                    |
-| ---- | -------------------- | ------------------------------ |
-| ✓    | OK                   | Full capacity available        |
-| ⚠    | CAPACITY-CONSTRAINED | Limited in some zones          |
-| ⚠    | LIMITED              | Subscription-level restriction |
-| ⚡    | PARTIAL              | Mixed zone availability        |
-| ✗    | RESTRICTED           | Not available                  |
+- Alternating row colors with Azure-blue header styling
+- Optional Subscription Map and Resource Group Map sheets (`-SubMap`, `-RGMap`)
 
 ## AI Agent Integration (Copilot Skill)
 
-This repo includes a **Copilot skill** that teaches AI coding agents (VS Code Copilot, Claude, Copilot CLI) how to invoke GET-AZVMLIFECYCLE for live capacity scanning. The skill provides routing logic, parameter mapping, and JSON output schema documentation so agents can translate natural language requests into the correct CLI invocations.
+This repo includes a **Copilot skill** that teaches AI coding agents (VS Code Copilot, Claude, Copilot CLI) how to invoke GET-AZVMLIFECYCLE for lifecycle analysis. The skill provides routing logic, parameter mapping, and JSON output schema documentation so agents can translate natural language requests into the correct CLI invocations.
 
 **Skill file:** [.github/skills/azure-vm-lifecycle/SKILL.md](.github/skills/azure-vm-lifecycle/SKILL.md)
 
@@ -628,9 +384,9 @@ This repo includes a **Copilot skill** that teaches AI coding agents (VS Code Co
 
 | User says | Agent runs |
 |-----------|-----------|
-| "Where can I deploy NC-series GPUs?" | `.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -FamilyFilter "NC","ND","NV" -RegionPreset USMajor -JsonOutput` |
-| "E64pds_v6 is constrained, find alternatives" | `.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Recommend "Standard_E64pds_v6" -Region "eastus","westus2" -JsonOutput` |
-| "Check placement scores for D4s_v5" | `.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Recommend "Standard_D4s_v5" -Region "eastus" -ShowPlacement -JsonOutput` |
+| "Which of my VMs are running retiring SKUs?" | `.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -JsonOutput` |
+| "Analyze this VM export for lifecycle risks" | `.\GET-AZVMLIFECYCLE.ps1 -InputFile .\vms.xlsx -NoPrompt -JsonOutput` |
+| "What should I replace Standard_D4s_v3 with?" | `.\GET-AZVMLIFECYCLE.ps1 -InputFile .\vms.csv -ShowPricing -NoPrompt -JsonOutput` |
 
 ### Installing the skill for VS Code Copilot
 
@@ -653,8 +409,8 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for gui
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md) for planned features including:
-- Azure Resource Graph integration for VM inventory
-- HTML reports and trend tracking
+- MCP Server integration for AI agent tooling
+- Proactive monitoring with capacity alerts
 - PowerShell module for PSGallery distribution
 
 ## License
@@ -663,7 +419,7 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) for deta
 
 ## Author
 
-**Zachary Luz** — Personal project (not an official Microsoft product)
+**Barry Lowrance** — Fork of [Zachary Luz's Get-AzVMAvailability](https://github.com/ZacharyLuz/Get-AzVMAvailability) (personal project, not an official Microsoft product)
 
 ## Support & Responsible Use
 

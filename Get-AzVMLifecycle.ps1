@@ -1,255 +1,126 @@
 ﻿<#
 .SYNOPSIS
-    GET-AZVMLIFECYCLE - Comprehensive SKU availability and capacity scanner.
+    GET-AZVMLIFECYCLE - Azure VM lifecycle management tool.
 
 .DESCRIPTION
-    Scans Azure regions for VM SKU availability and capacity status to help plan deployments.
-    Provides a comprehensive view of:
-    - All VM SKU families available in each region
-    - Capacity status (OK, LIMITED, CAPACITY-CONSTRAINED, RESTRICTED)
-    - Subscription-level restrictions
-    - Available vCPU quota per family
-    - Zone availability information
-    - Multi-region comparison matrix
+    Analyzes your deployed Azure VMs for lifecycle risks and recommends migration paths.
 
-    Key features:
-    - Parallel region scanning for speed (~5 seconds for 3 regions)
-    - Scans ALL VM families automatically
-    - Color-coded capacity reporting
-    - Interactive drill-down by family/SKU
-    - CSV/XLSX export with detailed breakdowns
-    - Auto-detects Unicode support for icons
+    Two modes of operation:
+    - **Default (live scan):** Queries Azure Resource Graph for deployed VMs and runs
+      lifecycle analysis across all discovered regions.
+    - **File-based (-InputFile):** Accepts CSV, JSON, or XLSX files (including native
+      Azure portal VM exports) for offline lifecycle analysis.
+
+    For each VM SKU, the tool:
+    - Detects retirement status and dates from Microsoft's published schedule
+    - Identifies old-generation SKUs that should be upgraded
+    - Runs compatibility-validated recommendations (12 hard requirements)
+    - Provides up to 5 alternatives: 3 from curated upgrade paths + 2 weighted
+    - Shows capacity status, quota availability, and pricing comparison
+    - Produces styled XLSX reports with color-coded risk levels
 
 .PARAMETER SubscriptionId
-    One or more Azure subscription IDs to scan. If not provided, prompts interactively.
+    One or more Azure subscription IDs to scan. If not provided, uses the current Az context.
 
 .PARAMETER Region
-    One or more Azure region codes to scan (e.g., 'eastus', 'westus2').
-    If not provided, prompts interactively or uses defaults with -NoPrompt.
+    One or more Azure region codes (e.g., 'eastus', 'westus2'). Auto-detected from
+    deployed VMs in live scan mode. Required for -InputFile when the file lacks Region data.
 
-.PARAMETER ExportPath
-    Directory path for CSV/XLSX export. If not specified with -AutoExport, uses:
-    - Cloud Shell: /home/system
-    - Local: C:\Temp\AzVMLifecycle
+.PARAMETER InputFile
+    Path to a CSV, JSON, or XLSX file listing current VM SKUs for lifecycle analysis.
+    CSV: column SKU (or Size/VmSize). JSON: array of {SKU:'...'} objects.
+    Qty column is optional. XLSX: supports native Azure portal VM exports.
 
-.PARAMETER AutoExport
-    Automatically export results without prompting.
+.PARAMETER ManagementGroup
+    Filter live scan to specific management group(s). Requires Az.ResourceGraph module.
 
-.PARAMETER EnableDrillDown
-    Enable interactive drill-down to select specific families and SKUs.
+.PARAMETER ResourceGroup
+    Filter live scan to specific resource group(s).
 
-.PARAMETER FamilyFilter
-    Pre-filter results to specific VM families (e.g., 'D', 'E', 'F').
+.PARAMETER Tag
+    Filter live scan to VMs with specific tags. Hashtable of key=value pairs,
+    e.g. @{Environment='prod'}. Use '*' as value to match any VM with the tag key.
+
+.PARAMETER SubMap
+    Add a 'Subscription Map' sheet to the lifecycle XLSX export.
+
+.PARAMETER RGMap
+    Add a 'Resource Group Map' sheet to the lifecycle XLSX export.
+
+.PARAMETER ShowPricing
+    Show hourly/monthly pricing. Auto-detects negotiated rates, falls back to retail.
+
+.PARAMETER ShowSpot
+    Include Spot VM pricing when pricing is enabled.
+
+.PARAMETER RateOptimization
+    Include Savings Plan and Reserved Instance pricing columns. Requires -ShowPricing.
+
+.PARAMETER ShowPlacement
+    Show allocation likelihood scores from Azure placement API.
+
+.PARAMETER NoQuota
+    Skip quota checks (useful for analyzing exports without subscription access).
+
+.PARAMETER NoPrompt
+    Skip all interactive prompts.
+
+.PARAMETER JsonOutput
+    Emit structured JSON output for automation/agent consumption.
+
+.PARAMETER ImageURN
+    Check SKU compatibility with a specific VM image (Publisher:Offer:Sku:Version).
+
+.PARAMETER TopN
+    Number of alternative SKUs to return per retiring SKU. Default 5, max 25.
 
 .PARAMETER SkuFilter
     Filter to specific SKU names. Supports wildcards (e.g., 'Standard_D*_v5').
 
-.PARAMETER ShowPricing
-    Show hourly/monthly pricing for VM SKUs.
-    Auto-detects negotiated rates (EA/MCA/CSP) via Cost Management API.
-    Falls back to retail pricing if negotiated rates unavailable.
-    Adds ~5-10 seconds to execution time.
+.PARAMETER AutoExport
+    Automatically export results without prompting.
 
-.PARAMETER ShowSpot
-    Include Spot VM pricing in pricing-enabled outputs.
-
-.PARAMETER ImageURN
-    Check SKU compatibility with a specific VM image.
-    Format: Publisher:Offer:Sku:Version (e.g., 'Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest')
-    Shows Gen/Arch columns and Img compatibility in drill-down view.
-
-.PARAMETER CompactOutput
-    Use compact output format for narrow terminals.
-    Automatically enabled when terminal width is less than 150 characters.
-
-.PARAMETER NoPrompt
-    Skip all interactive prompts. Uses defaults or provided parameters.
-
-.PARAMETER OutputFormat
-    Export format: 'Auto' (detects XLSX capability), 'CSV', or 'XLSX'.
-    Default is 'Auto'.
-
-.PARAMETER UseAsciiIcons
-    Force ASCII icons [+] [!] [-] instead of Unicode ✓ ⚠ ✗.
-    By default, auto-detects terminal capability.
-
-.PARAMETER Environment
-    Azure cloud environment override. Auto-detects from Az context if not specified.
-    Options: AzureCloud, AzureUSGovernment, AzureChinaCloud, AzureGermanCloud
-
-.PARAMETER RegionPreset
-    Predefined region sets for common scenarios (e.g., USMajor, Europe, USGov).
-    Auto-sets cloud environment for sovereign cloud presets.
-
-.PARAMETER MaxRetries
-    Max retry attempts for transient API errors (429, 503, timeouts). Default 3, range 0-10.
-
-.PARAMETER Recommend
-    Find alternatives for a target SKU that may be unavailable or capacity-constrained.
-    Scans specified regions, scores all available SKUs by similarity to the target
-    (vCPU, memory, family category, VM generation, CPU architecture), and returns
-    the closest available alternatives ranked by score.
-    Accepts full name ('Standard_E64pds_v6') or short name ('E64pds_v6').
-    Can be used with interactive drill-down mode; if not pre-specified, user is prompted
-    to enter a SKU during interactive exploration to find alternatives.
-
-.PARAMETER TopN
-    Number of alternative SKUs to return in Recommend mode. Default 5, max 25.
-
-.PARAMETER MinScore
-    Minimum similarity score (0-100) for recommended alternatives. Defaults to 50.
-    Set to 0 to show all candidates.
-
-.PARAMETER MinvCPU
-    Minimum vCPU count for recommended alternatives. SKUs below this are excluded.
-    If smaller SKUs have better availability, a suggestion note is shown.
-
-.PARAMETER MinMemoryGB
-    Minimum memory in GB for recommended alternatives. SKUs below this are excluded.
-    If smaller SKUs have better availability, a suggestion note is shown.
-
-.PARAMETER JsonOutput
-    Emit structured JSON instead of console tables. Designed for the AzVMAvailability-Agent
-    (https://github.com/ZacharyLuz/AzVMAvailability-Agent) which parses this output to
-    provide conversational VM recommendations via natural language. Also useful for
-    piping results into other tools or storing scan results programmatically.
-
-.PARAMETER SkipRegionValidation
-    Skip all validation of region names against Azure region metadata.
-    Use this only when Azure metadata lookup is unavailable; otherwise, mistyped or
-    unsupported region names may not be detected. By default (without this switch),
-    non-interactive mode fails closed when region validation is unavailable to prevent
-    scans against invalid regions.
+.PARAMETER ExportPath
+    Directory path for export. Defaults to C:\Temp\AzVMLifecycle or /home/system in Cloud Shell.
 
 .NOTES
     Name:           GET-AZVMLIFECYCLE
-    Author:         Zachary Luz
-    Created:        2026-01-21
-    Version:        1.14.0
+    Author:         Barry Lowrance (fork of Zachary Luz's Get-AzVMAvailability)
+    Version:        2.0.0
     License:        MIT
     Repository:     https://github.com/bzlowrance/Get-AzVMLifecycle
 
-    Requirements:   Az.Compute, Az.Resources modules
+    Requirements:   Az.Compute, Az.Resources, Az.ResourceGraph modules
                     PowerShell 7+ (required)
 
-    DISCLAIMER
-    The author is a Microsoft employee; however, this is a personal open-source
-    project. It is not an official Microsoft product, nor is it endorsed,
-    sponsored, or supported by Microsoft.
-
-    This sample script is not supported under any Microsoft standard support
-    program or service. The sample script is provided AS IS without warranty
-    of any kind. Microsoft further disclaims all implied warranties including,
-    without limitation, any implied warranties of merchantability or of fitness
-    for a particular purpose. The entire risk arising out of the use or
-    performance of the sample scripts and documentation remains with you.
-
 .EXAMPLE
     .\GET-AZVMLIFECYCLE.ps1
-    Run interactively with prompts for all options.
+    Live scan: queries Azure Resource Graph for all deployed VMs, analyzes lifecycle
+    risks, and shows recommendations for retiring or old-gen SKUs.
 
 .EXAMPLE
-    .\GET-AZVMLIFECYCLE.ps1 -Region "eastus","westus2" -AutoExport
-    Scan specified regions with current subscription, auto-export results.
+    .\GET-AZVMLIFECYCLE.ps1 -SubscriptionId "xxxx-xxxx" -NoPrompt
+    Scan a specific subscription without interactive prompts.
 
 .EXAMPLE
-    .\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Region "eastus","centralus","westus2"
-    Fully automated scan of three regions using current subscription context.
+    .\GET-AZVMLIFECYCLE.ps1 -ManagementGroup "Production" -Tag @{Environment='prod'}
+    Scan VMs in the Production management group tagged with Environment=prod.
 
 .EXAMPLE
-    .\GET-AZVMLIFECYCLE.ps1 -EnableDrillDown -FamilyFilter "D","E","M"
-    Interactive mode focused on D, E, and M series families.
+    .\GET-AZVMLIFECYCLE.ps1 -InputFile .\my-vms.csv -NoPrompt
+    File-based analysis from a CSV with SKU, Region, and Qty columns.
 
 .EXAMPLE
-    .\GET-AZVMLIFECYCLE.ps1 -SkuFilter "Standard_D2s_v3","Standard_E4s_v5" -Region "eastus"
-    Filter to show only specific SKUs in eastus region.
+    .\GET-AZVMLIFECYCLE.ps1 -InputFile .\azure-portal-export.xlsx -ShowPricing -RateOptimization
+    Analyze an Azure portal VM export with full pricing comparison including RI/SP.
 
 .EXAMPLE
-    .\GET-AZVMLIFECYCLE.ps1 -SkuFilter "Standard_D*_v5" -Region "eastus","westus2"
-    Use wildcard to filter all D-series v5 SKUs across multiple regions.
+    .\GET-AZVMLIFECYCLE.ps1 -SubMap -RGMap -AutoExport
+    Live scan with subscription and resource group deployment maps in the XLSX export.
 
 .EXAMPLE
-    .\GET-AZVMLIFECYCLE.ps1 -ShowPricing -Region "eastus"
-    Include estimated hourly pricing for VM SKUs in eastus.
-
-.EXAMPLE
-    .\GET-AZVMLIFECYCLE.ps1 -ImageURN "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest" -Region "eastus"
-    Check SKU compatibility with Ubuntu 22.04 Gen2 image.
-
-.EXAMPLE
-    .\GET-AZVMLIFECYCLE.ps1 -ImageURN "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-arm64:latest" -SkuFilter "Standard_D*ps*"
-    Find ARM64-compatible SKUs for Ubuntu ARM64 image.
-
-.EXAMPLE
-    .\GET-AZVMLIFECYCLE.ps1 -NoPrompt -ShowPricing -Region "eastus","westus2"
-    Automated scan with pricing enabled, no interactive prompts.
-
-.EXAMPLE
-    .\GET-AZVMLIFECYCLE.ps1 -RegionPreset USEastWest -NoPrompt
-    Scan US East/West regions (eastus, eastus2, westus, westus2) using a preset.
-
-.EXAMPLE
-    .\GET-AZVMLIFECYCLE.ps1 -RegionPreset ASR-EastWest -FamilyFilter "D","E" -ShowPricing
-    Check DR region pair for Azure Site Recovery planning with pricing.
-
-.EXAMPLE
-    .\GET-AZVMLIFECYCLE.ps1 -RegionPreset Europe -NoPrompt -AutoExport
-    Scan all major European regions with auto-export.
-
-.EXAMPLE
-    .\GET-AZVMLIFECYCLE.ps1 -RegionPreset USGov -NoPrompt
-    Scan Azure Government regions (auto-sets environment to AzureUSGovernment).
-
-.EXAMPLE
-    .\GET-AZVMLIFECYCLE.ps1 -Recommend "Standard_E64pds_v6" -Region "eastus","westus2","centralus"
-    Find alternatives to E64pds_v6 across three regions, ranked by similarity.
-
-.EXAMPLE
-    .\GET-AZVMLIFECYCLE.ps1 -Recommend "Standard_E64pds_v6" -RegionPreset USMajor -MinScore 0
-    Show all candidates regardless of similarity score (useful when capacity is constrained).
-
-.EXAMPLE
-    .\GET-AZVMLIFECYCLE.ps1 -Recommend "E64pds_v6" -RegionPreset USMajor -TopN 10
-    Find top 10 alternatives across major US regions (Standard_ prefix auto-added).
-
-.EXAMPLE
-    .\GET-AZVMLIFECYCLE.ps1 -Recommend "Standard_D4s_v5" -Region "eastus" -JsonOutput -NoPrompt
-    Emit structured JSON instead of console tables. Designed for the AzVMAvailability-Agent
-    (https://github.com/ZacharyLuz/AzVMAvailability-Agent) which parses this output to
-    provide conversational VM recommendations. Also useful for piping into other tools
-    or storing scan results programmatically.
-
-.EXAMPLE
-    .\GET-AZVMLIFECYCLE.ps1 -InventoryFile .\inventory.csv -Region "eastus" -NoPrompt
-    Load an inventory BOM from CSV file. The CSV needs SKU and Qty columns:
-    SKU,Qty
-    Standard_D2s_v5,17
-    Standard_D4s_v5,4
-    Standard_D8s_v5,5
-
-.EXAMPLE
-    .\GET-AZVMLIFECYCLE.ps1 -Inventory @{'Standard_D2s_v5'=17; 'Standard_D4s_v5'=4; 'Standard_D8s_v5'=5} -Region "eastus" -NoPrompt
-    Inline inventory BOM using PowerShell hashtable syntax.
-
-.EXAMPLE
-    .\GET-AZVMLIFECYCLE.ps1 -GenerateInventoryTemplate
-    Creates inventory-template.csv and inventory-template.json in the current directory.
-    Edit the files with your VM SKUs and quantities, then run:
-    .\GET-AZVMLIFECYCLE.ps1 -InventoryFile .\inventory-template.csv -Region "eastus" -NoPrompt
-
-.EXAMPLE
-    .\GET-AZVMLIFECYCLE.ps1 -LifecycleRecommendations .\my-vms.csv -Region "eastus" -NoPrompt
-    Lifecycle analysis: loads a list of current VM SKUs, runs compatibility-validated
-    recommendations for each, and produces a consolidated risk summary identifying
-    old-generation SKUs, capacity-constrained SKUs, and recommended replacements.
-    The CSV supports optional columns: Region (deployed location) and Qty (VM count).
-    When Qty is provided, quota is checked against the required vCPUs (Qty x vCPU)
-    for both the current SKU and the recommended replacement.
-
-.EXAMPLE
-    .\GET-AZVMLIFECYCLE.ps1
-    Run interactively. After exploring regions and families, you'll be prompted to optionally
-    enter recommend mode to find alternatives for a specific SKU.
+    .\GET-AZVMLIFECYCLE.ps1 -JsonOutput -NoPrompt
+    Emit structured JSON for automation pipelines.
 
 .LINK
     https://github.com/bzlowrance/Get-AzVMLifecycle
@@ -274,12 +145,6 @@ param(
 
     [Parameter(Mandatory = $false, HelpMessage = "Automatically export results")]
     [switch]$AutoExport,
-
-    [Parameter(Mandatory = $false, HelpMessage = "Enable interactive family/SKU drill-down")]
-    [switch]$EnableDrillDown,
-
-    [Parameter(Mandatory = $false, HelpMessage = "Pre-filter to specific VM families")]
-    [string[]]$FamilyFilter,
 
     [Parameter(Mandatory = $false, HelpMessage = "Filter to specific SKUs (supports wildcards)")]
     [string[]]$SkuFilter,
@@ -324,9 +189,6 @@ param(
     [ValidateRange(0, 10)]
     [int]$MaxRetries = 3,
 
-    [Parameter(Mandatory = $false, HelpMessage = "Find alternatives for a target SKU (e.g., 'Standard_E64pds_v6')")]
-    [string]$Recommend,
-
     [Parameter(Mandatory = $false, HelpMessage = "Number of alternative SKUs to return (default 5)")]
     [ValidateRange(1, 25)]
     [int]$TopN = 5,
@@ -352,80 +214,32 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "Skip validation of region names against Azure metadata")]
     [switch]$SkipRegionValidation,
 
-    [Parameter(Mandatory = $false, HelpMessage = "Inventory BOM: hashtable of SKU=Quantity pairs for inventory readiness validation (e.g., @{'Standard_D2s_v5'=17; 'Standard_D4s_v5'=4})")]
-    [Alias('Fleet')]
-    [hashtable]$Inventory,
-
-    [Parameter(Mandatory = $false, HelpMessage = "Path to a CSV or JSON inventory BOM file. CSV: columns SKU,Qty. JSON: array of {SKU:'...',Qty:N} objects. Duplicate SKUs are summed.")]
-    [Alias('FleetFile')]
-    [string]$InventoryFile,
-
-    [Parameter(Mandatory = $false, HelpMessage = "Generate inventory-template.csv and inventory-template.json in the current directory, then exit. No Azure login required.")]
-    [Alias('GenerateFleetTemplate')]
-    [switch]$GenerateInventoryTemplate,
-
     [Parameter(Mandatory = $false, HelpMessage = "Include Savings Plan and Reserved Instance pricing columns in lifecycle reports. Requires -ShowPricing. Without this flag, only PAYG pricing is shown.")]
     [switch]$RateOptimization,
 
-    [Parameter(Mandatory = $false, HelpMessage = "Path to a CSV, JSON, or XLSX file listing current VM SKUs for lifecycle analysis. Runs compatibility-validated recommendations for each SKU and flags lifecycle risks. CSV: column SKU (or Size/VmSize). JSON: array of {SKU:'...'} objects. Qty column is optional. XLSX: supports native Azure portal VM exports (maps SIZE/LOCATION columns automatically).")]
-    [string]$LifecycleRecommendations,
+    [Parameter(Mandatory = $false, HelpMessage = "Path to a CSV, JSON, or XLSX file listing current VM SKUs for lifecycle analysis instead of live ARG scan. CSV: column SKU (or Size/VmSize). JSON: array of {SKU:'...'} objects. Qty column is optional. XLSX: supports native Azure portal VM exports (maps SIZE/LOCATION columns automatically).")]
+    [Alias('LifecycleRecommendations')]
+    [string]$InputFile,
 
-    [Parameter(Mandatory = $false, HelpMessage = "Pull live VM inventory from Azure via Resource Graph for lifecycle analysis. Scopes to -SubscriptionId if specified; use -ManagementGroup or -ResourceGroup for further filtering.")]
-    [switch]$LifecycleScan,
-
-    [Parameter(Mandatory = $false, HelpMessage = "Filter -LifecycleScan to specific management group(s). Requires Az.ResourceGraph module.")]
+    [Parameter(Mandatory = $false, HelpMessage = "Filter to specific management group(s). Requires Az.ResourceGraph module.")]
     [string[]]$ManagementGroup,
 
-    [Parameter(Mandatory = $false, HelpMessage = "Filter -LifecycleScan to specific resource group(s).")]
+    [Parameter(Mandatory = $false, HelpMessage = "Filter to specific resource group(s).")]
     [string[]]$ResourceGroup,
 
-    [Parameter(Mandatory = $false, HelpMessage = "Filter -LifecycleScan to VMs with specific tags. Hashtable of key=value pairs, e.g. @{Environment='prod'}. Use '*' as value to match any VM that has the tag key regardless of value.")]
+    [Parameter(Mandatory = $false, HelpMessage = "Filter to VMs with specific tags. Hashtable of key=value pairs, e.g. @{Environment='prod'}. Use '*' as value to match any VM that has the tag key regardless of value.")]
     [Alias("Tags")]
     [hashtable]$Tag,
 
-    [Parameter(Mandatory = $false, HelpMessage = "Add a 'Subscription Map' sheet to the lifecycle XLSX showing VM counts grouped by subscription, region, and SKU. Requires -LifecycleScan.")]
+    [Parameter(Mandatory = $false, HelpMessage = "Add a 'Subscription Map' sheet to the lifecycle XLSX showing VM counts grouped by subscription, region, and SKU.")]
     [switch]$SubMap,
 
-    [Parameter(Mandatory = $false, HelpMessage = "Add a 'Resource Group Map' sheet to the lifecycle XLSX showing VM counts grouped by resource group, subscription, region, and SKU. Requires -LifecycleScan.")]
+    [Parameter(Mandatory = $false, HelpMessage = "Add a 'Resource Group Map' sheet to the lifecycle XLSX showing VM counts grouped by resource group, subscription, region, and SKU.")]
     [switch]$RGMap
 )
 
 $ProgressPreference = 'SilentlyContinue'  # Suppress progress bars for faster execution
 
-#region GenerateInventoryTemplate
-if ($GenerateInventoryTemplate) {
-    if ($JsonOutput) { throw "Cannot use -GenerateInventoryTemplate with -JsonOutput. Template generation writes files to disk, not JSON to stdout." }
-    $csvPath = Join-Path $PWD 'inventory-template.csv'
-    $jsonPath = Join-Path $PWD 'inventory-template.json'
-    $csvContent = @"
-SKU,Qty
-Standard_D2s_v5,10
-Standard_D4s_v5,5
-Standard_D8s_v5,3
-Standard_E4s_v5,2
-Standard_E16s_v5,1
-"@
-    $jsonContent = @"
-[
-  { "SKU": "Standard_D2s_v5", "Qty": 10 },
-  { "SKU": "Standard_D4s_v5", "Qty": 5 },
-  { "SKU": "Standard_D8s_v5", "Qty": 3 },
-  { "SKU": "Standard_E4s_v5", "Qty": 2 },
-  { "SKU": "Standard_E16s_v5", "Qty": 1 }
-]
-"@
-    Set-Content -Path $csvPath -Value $csvContent -Encoding utf8
-    Set-Content -Path $jsonPath -Value $jsonContent -Encoding utf8
-    Write-Host "Created inventory templates:" -ForegroundColor Green
-    Write-Host "  CSV: $csvPath" -ForegroundColor Cyan
-    Write-Host "  JSON: $jsonPath" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "Next steps:" -ForegroundColor Yellow
-    Write-Host "  1. Edit the template with your VM SKUs and quantities"
-    Write-Host "  2. Run: .\GET-AZVMLIFECYCLE.ps1 -InventoryFile .\inventory-template.csv -Region 'eastus' -NoPrompt"
-    return
-}
-#endregion GenerateInventoryTemplate
 
 if ($PSVersionTable.PSVersion.Major -lt 7) {
     Write-Warning "PowerShell 7+ is required to run GET-AZVMLIFECYCLE.ps1."
@@ -435,78 +249,19 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 }
 
 # Normalize string[] params — pwsh -File passes comma-delimited values as a single string
-foreach ($paramName in @('SubscriptionId', 'Region', 'FamilyFilter', 'SkuFilter', 'ManagementGroup', 'ResourceGroup')) {
+foreach ($paramName in @('SubscriptionId', 'Region', 'SkuFilter', 'ManagementGroup', 'ResourceGroup')) {
     $val = Get-Variable -Name $paramName -ValueOnly -ErrorAction SilentlyContinue
     if ($val -and $val.Count -eq 1 -and $val[0] -match ',') {
         Set-Variable -Name $paramName -Value @($val[0] -split ',' | ForEach-Object { $_.Trim().Trim('"', "'") } | Where-Object { $_ })
     }
 }
 
-# Guard: -ManagementGroup, -ResourceGroup, and -Tag only valid with -LifecycleScan
-if (($ManagementGroup -or $ResourceGroup -or $Tag) -and -not $LifecycleScan) {
-    throw "-ManagementGroup, -ResourceGroup, and -Tag require -LifecycleScan. Use -LifecycleScan to pull live VM inventory."
-}
 
-# InventoryFile: load CSV/JSON into $Inventory hashtable
-if ($InventoryFile) {
-    if ($Inventory) { throw "Cannot specify both -Inventory and -InventoryFile. Use one or the other." }
-    if (-not (Test-Path -LiteralPath $InventoryFile -PathType Leaf)) { throw "Inventory file not found or is not a file: $InventoryFile" }
-    $ext = [System.IO.Path]::GetExtension($InventoryFile).ToLower()
-    if ($ext -notin '.csv', '.json') { throw "Unsupported file type '$ext'. InventoryFile must be .csv or .json" }
-    if ($ext -eq '.json') {
-        $jsonData = @(Get-Content -LiteralPath $InventoryFile -Raw | ConvertFrom-Json)
-        $Inventory = @{}
-        foreach ($item in $jsonData) {
-            $skuProp = ($item.PSObject.Properties | Where-Object { $_.Name -match '^(SKU|Name|VmSize|Intel\.SKU)$' } | Select-Object -First 1).Value
-            $qtyProp = ($item.PSObject.Properties | Where-Object { $_.Name -match '^(Qty|Quantity|Count)$' } | Select-Object -First 1).Value
-            if ($skuProp -and $qtyProp) {
-                $skuClean = $skuProp.Trim()
-                $qtyInt = [int]$qtyProp
-                if ($qtyInt -le 0) { throw "Invalid quantity '$qtyProp' for SKU '$skuClean'. Qty must be a positive integer." }
-                if ($Inventory.ContainsKey($skuClean)) { $Inventory[$skuClean] += $qtyInt }
-                else { $Inventory[$skuClean] = $qtyInt }
-            }
-        }
-    }
-    else {
-        $csvData = Import-Csv -LiteralPath $InventoryFile
-        $Inventory = @{}
-        foreach ($row in $csvData) {
-            $skuProp = ($row.PSObject.Properties | Where-Object { $_.Name -match '^(SKU|Name|VmSize|Intel\.SKU)$' } | Select-Object -First 1).Value
-            $qtyProp = ($row.PSObject.Properties | Where-Object { $_.Name -match '^(Qty|Quantity|Count)$' } | Select-Object -First 1).Value
-            if ($skuProp -and $qtyProp) {
-                $skuClean = $skuProp.Trim()
-                $qtyInt = [int]$qtyProp
-                if ($qtyInt -le 0) { throw "Invalid quantity '$qtyProp' for SKU '$skuClean'. Qty must be a positive integer." }
-                if ($Inventory.ContainsKey($skuClean)) { $Inventory[$skuClean] += $qtyInt }
-                else { $Inventory[$skuClean] = $qtyInt }
-            }
-        }
-    }
-    if ($Inventory.Count -eq 0) { throw "No valid SKU/Qty rows found in $InventoryFile. Expected columns: SKU (or Name/VmSize), Qty (or Quantity/Count)" }
-    if (-not $JsonOutput) { Write-Host "Loaded $($Inventory.Count) SKUs from $InventoryFile" -ForegroundColor Cyan }
-}
-
-# Inventory mode: normalize keys (strip double-prefix) and derive SkuFilter
-if ($Inventory -and $Inventory.Count -gt 0) {
-    $normalizedInventory = @{}
-    foreach ($key in @($Inventory.Keys)) {
-        $clean = $key -replace '^Standard_Standard_', 'Standard_'
-        if ($clean -notmatch '^Standard_') { $clean = "Standard_$clean" }
-        $normalizedInventory[$clean] = $Inventory[$key]
-    }
-    $Inventory = $normalizedInventory
-    $SkuFilter = @($Inventory.Keys)
-    Write-Verbose "Inventory mode: derived SkuFilter from $($Inventory.Count) Inventory SKUs"
-}
 
 # LifecycleRecommendations: load CSV/JSON/XLSX into $lifecycleEntries list (SKU + optional Region)
-if ($LifecycleRecommendations) {
-    if ($LifecycleScan) { throw "Cannot specify both -LifecycleRecommendations and -LifecycleScan. Use one or the other." }
-    if ($Recommend) { throw "Cannot specify both -Recommend and -LifecycleRecommendations. Use one or the other." }
-    if ($Inventory -or $InventoryFile) { throw "Cannot specify both -LifecycleRecommendations and -Inventory/-InventoryFile. They are separate modes." }
-    if (-not (Test-Path -LiteralPath $LifecycleRecommendations -PathType Leaf)) { throw "Lifecycle file not found or is not a file: $LifecycleRecommendations" }
-    $ext = [System.IO.Path]::GetExtension($LifecycleRecommendations).ToLower()
+if ($InputFile) {
+    if (-not (Test-Path -LiteralPath $InputFile -PathType Leaf)) { throw "Input file not found or is not a file: $InputFile" }
+    $ext = [System.IO.Path]::GetExtension($InputFile).ToLower()
     if ($ext -notin '.csv', '.json', '.xlsx') { throw "Unsupported file type '$ext'. LifecycleRecommendations must be .csv, .json, or .xlsx" }
     if ($ext -eq '.xlsx' -and -not (Get-Module -ListAvailable ImportExcel)) { throw "ImportExcel module required for .xlsx files. Install with: Install-Module ImportExcel -Scope CurrentUser" }
     $lifecycleEntries = [System.Collections.Generic.List[PSCustomObject]]::new()
@@ -560,18 +315,18 @@ if ($LifecycleRecommendations) {
         }
     }
     if ($ext -eq '.json') {
-        $jsonData = @(Get-Content -LiteralPath $LifecycleRecommendations -Raw | ConvertFrom-Json)
+        $jsonData = @(Get-Content -LiteralPath $InputFile -Raw | ConvertFrom-Json)
         foreach ($item in $jsonData) { & $parseRow $item }
     }
     elseif ($ext -eq '.xlsx') {
-        $xlsxData = Import-Excel -Path $LifecycleRecommendations
+        $xlsxData = Import-Excel -Path $InputFile
         foreach ($row in $xlsxData) { & $parseRow $row }
     }
     else {
-        $csvData = Import-Csv -LiteralPath $LifecycleRecommendations
+        $csvData = Import-Csv -LiteralPath $InputFile
         foreach ($row in $csvData) { & $parseRow $row }
     }
-    if ($lifecycleEntries.Count -eq 0) { throw "No valid SKU rows found in $LifecycleRecommendations. Expected column: SKU, Size, or VmSize (falls back to Name)" }
+    if ($lifecycleEntries.Count -eq 0) { throw "No valid SKU rows found in $InputFile. Expected column: SKU, Size, or VmSize (falls back to Name)" }
     $SkuFilter = @($lifecycleEntries | ForEach-Object { $_.SKU })
 
     # Auto-merge per-SKU regions into the -Region parameter so all needed regions get scanned
@@ -588,7 +343,7 @@ if ($LifecycleRecommendations) {
     }
 
     $totalVMs = ($lifecycleEntries | Measure-Object -Property Qty -Sum).Sum
-    if (-not $JsonOutput) { Write-Host "Lifecycle analysis: loaded $($lifecycleEntries.Count) SKU entries ($totalVMs VMs) from $LifecycleRecommendations" -ForegroundColor Cyan }
+    if (-not $JsonOutput) { Write-Host "Lifecycle analysis: loaded $($lifecycleEntries.Count) SKU entries ($totalVMs VMs) from $InputFile" -ForegroundColor Cyan }
 
     #region Build Deployment Map from File Data (-SubMap / -RGMap)
     if ($captureDeploymentMap -and $fileVMRows.Count -gt 0) {
@@ -637,21 +392,14 @@ if ($LifecycleRecommendations) {
     #endregion Build Deployment Map from File Data
 }
 
-# Validate -SubMap / -RGMap require a lifecycle mode
-if (($SubMap -or $RGMap) -and -not $LifecycleScan -and -not $LifecycleRecommendations) {
-    throw "-SubMap and -RGMap require -LifecycleScan or -LifecycleRecommendations."
-}
-
-# LifecycleScan: pull live VM inventory from Azure Resource Graph
-if ($LifecycleScan) {
-    if ($Recommend) { throw "Cannot specify both -Recommend and -LifecycleScan. Use one or the other." }
-    if ($Inventory -or $InventoryFile) { throw "Cannot specify both -LifecycleScan and -Inventory/-InventoryFile. They are separate modes." }
-    if ($ManagementGroup -and $SubscriptionId) { throw "Cannot specify both -ManagementGroup and -SubscriptionId for -LifecycleScan. Use one or the other." }
+# Default mode: pull live VM inventory from Azure Resource Graph
+if (-not $InputFile) {
+    if ($ManagementGroup -and $SubscriptionId) { throw "Cannot specify both -ManagementGroup and -SubscriptionId. Use one or the other." }
     if (-not $ManagementGroup -and -not $SubscriptionId) {
         $currentCtx = Get-AzContext -ErrorAction SilentlyContinue
         if (-not $currentCtx -or -not $currentCtx.Subscription) { throw "No Azure context found. Run Connect-AzAccount first, or specify -SubscriptionId or -ManagementGroup." }
     }
-    if (-not (Get-Module -ListAvailable Az.ResourceGraph)) { throw "Az.ResourceGraph module required for -LifecycleScan. Install with: Install-Module Az.ResourceGraph -Scope CurrentUser" }
+    if (-not (Get-Module -ListAvailable Az.ResourceGraph)) { throw "Az.ResourceGraph module required for live VM lifecycle analysis. Install with: Install-Module Az.ResourceGraph -Scope CurrentUser" }
     Import-Module Az.ResourceGraph -ErrorAction Stop
 
     # Build ARG query with optional resource group and tag filters
@@ -837,7 +585,7 @@ if ($lifecycleEntries -and $lifecycleEntries.Count -gt 0) {
 }
 
 #region Configuration
-$ScriptVersion = "1.14.0"
+$ScriptVersion = "2.0.0"
 
 #region Constants
 $HoursPerMonth = 730
@@ -872,9 +620,6 @@ $FamilyInfo = @{
     'NP' = @{ Purpose = 'GPU FPGA'; Category = 'GPU' }
     'NV' = @{ Purpose = 'GPU visualization'; Category = 'GPU' }
 }
-$DefaultTerminalWidth = 80
-$MinTableWidth = 70
-$ExcelDescriptionColumnWidth = 70
 $MinRecommendationScoreDefault = 50
 #endregion Constants
 # Runtime context for per-run state, outputs, and reusable caches
@@ -905,7 +650,6 @@ if (-not $PSBoundParameters.ContainsKey('MinScore')) {
 # Map parameters to internal variables
 $TargetSubIds = $SubscriptionId
 $Regions = $Region
-$EnableDrill = $EnableDrillDown.IsPresent
 $script:RunContext.ShowPlacement = $ShowPlacement.IsPresent
 $script:RunContext.DesiredCount = $DesiredCount
 
@@ -937,16 +681,6 @@ if ($RegionPreset) {
     elseif ($RegionPreset -eq 'China' -and -not $Environment) {
         $script:TargetEnvironment = 'AzureChinaCloud'
         Write-Verbose "Auto-setting environment to AzureChinaCloud for China preset"
-    }
-}
-$SelectedFamilyFilter = $FamilyFilter
-$SelectedSkuFilter = @{}
-
-# Normalize -Recommend SKU name — trim whitespace and add Standard_ prefix if missing
-if ($Recommend) {
-    $Recommend = $Recommend.Trim()
-    if ($Recommend -notmatch '^Standard_') {
-        $Recommend = "Standard_$Recommend"
     }
 }
 
@@ -1580,242 +1314,6 @@ function Get-QuotaAvailable {
     }
 }
 
-function Get-InventoryReadiness {
-    [Alias('Get-FleetReadiness')]
-    <#
-    .SYNOPSIS
-        Validates an inventory BOM against scan data to produce per-SKU and per-quota-family readiness.
-    .DESCRIPTION
-        Takes an Inventory hashtable (SKU=Qty) and scan data, then checks:
-        1. Does each SKU exist in the scanned regions?
-        2. What is the capacity status for each SKU?
-        3. Does the quota family have enough available vCPUs for the aggregated demand?
-    #>
-    param(
-        [Parameter(Mandatory)]
-        [Alias('Fleet')]
-        [hashtable]$Inventory,
-
-        [Parameter(Mandatory)]
-        [array]$SubscriptionData
-    )
-
-    $results = [System.Collections.Generic.List[PSCustomObject]]::new()
-    $quotaDemandByFamily = @{}
-
-    foreach ($skuName in $Inventory.Keys) {
-        $normalizedSku = $skuName
-        $qty = [int]$Inventory[$skuName]
-
-        $foundInAnyRegion = $false
-        $bestStatus = 'NOT FOUND'
-        $bestRegion = $null
-        $skuVcpu = 0
-        $skuFamily = $null
-        $skuMemGiB = 0
-        $quotaAvailable = $null
-        $quotaLimit = $null
-        $quotaCurrent = $null
-
-        foreach ($subData in $SubscriptionData) {
-            foreach ($regionData in $subData.RegionData) {
-                if ($regionData.Error) { continue }
-                $region = Get-SafeString $regionData.Region
-
-                foreach ($sku in $regionData.Skus) {
-                    if ($sku.Name -ne $normalizedSku) { continue }
-                    $foundInAnyRegion = $true
-                    $skuVcpu = [int](Get-CapValue $sku 'vCPUs')
-                    $skuMemGiB = [int](Get-CapValue $sku 'MemoryGB')
-                    $skuFamily = $sku.Family
-
-                    $restrictions = Get-RestrictionDetails $sku
-                    $status = $restrictions.Status
-
-                    # Rank: OK > LIMITED > CAPACITY-CONSTRAINED > RESTRICTED > BLOCKED
-                    $statusRank = switch ($status) {
-                        'OK' { 5 }
-                        'LIMITED' { 4 }
-                        'CAPACITY-CONSTRAINED' { 3 }
-                        'PARTIAL' { 2 }
-                        'RESTRICTED' { 1 }
-                        default { 0 }
-                    }
-                    $bestRank = switch ($bestStatus) {
-                        'OK' { 5 }
-                        'LIMITED' { 4 }
-                        'CAPACITY-CONSTRAINED' { 3 }
-                        'PARTIAL' { 2 }
-                        'RESTRICTED' { 1 }
-                        'NOT FOUND' { -1 }
-                        default { 0 }
-                    }
-
-                    if ($statusRank -gt $bestRank) {
-                        $bestStatus = $status
-                        $bestRegion = $region
-                    }
-
-                    # Build quota lookup for this region
-                    $quotaLookup = @{}
-                    foreach ($q in $regionData.Quotas) { $quotaLookup[$q.Name.Value] = $q }
-
-                    # Try exact match first, then substring fallback
-                    $matchedFamily = $skuFamily
-                    if ($skuFamily -and -not $quotaLookup[$skuFamily]) {
-                        $fallback = $quotaLookup.Keys | Where-Object { $skuFamily -like "*$_*" -or $_ -like "*$skuFamily*" } | Select-Object -First 1
-                        if ($fallback) { $matchedFamily = $fallback }
-                    }
-
-                    if ($matchedFamily -and $quotaLookup[$matchedFamily]) {
-                        $qInfo = Get-QuotaAvailable -QuotaLookup $quotaLookup -SkuFamily $matchedFamily
-                        $quotaAvailable = $qInfo.Available
-                        $quotaLimit = $qInfo.Limit
-                        $quotaCurrent = $qInfo.Current
-                    }
-                }
-            }
-        }
-
-        $totalVcpuDemand = $qty * $skuVcpu
-
-        # Aggregate demand per quota family for cross-SKU quota check
-        if ($skuFamily) {
-            if (-not $quotaDemandByFamily.ContainsKey($skuFamily)) {
-                $quotaDemandByFamily[$skuFamily] = @{ Demand = 0; Available = $quotaAvailable; Limit = $quotaLimit; Current = $quotaCurrent }
-            }
-            $quotaDemandByFamily[$skuFamily].Demand += $totalVcpuDemand
-        }
-
-        $results.Add([pscustomobject]@{
-            SKU           = $normalizedSku
-            Qty           = $qty
-            vCPUEach      = $skuVcpu
-            MemGiBEach    = $skuMemGiB
-            TotalvCPU     = $totalVcpuDemand
-            QuotaFamily   = if ($skuFamily) { $skuFamily } else { '?' }
-            Capacity      = $bestStatus
-            BestRegion    = if ($bestRegion) { $bestRegion } else { '-' }
-            QuotaUsed     = if ($null -ne $quotaCurrent) { $quotaCurrent } else { '?' }
-            QuotaAvail    = if ($null -ne $quotaAvailable) { $quotaAvailable } else { '?' }
-            QuotaLimit    = if ($null -ne $quotaLimit) { $quotaLimit } else { '?' }
-            Found         = $foundInAnyRegion
-        })
-    }
-
-    # Compute per-family quota pass/fail
-    $familyResults = [System.Collections.Generic.List[PSCustomObject]]::new()
-    foreach ($family in $quotaDemandByFamily.Keys) {
-        $entry = $quotaDemandByFamily[$family]
-        $pass = if ($null -ne $entry.Available) { $entry.Available -ge $entry.Demand } else { $null }
-        $familyResults.Add([pscustomobject]@{
-            QuotaFamily   = $family
-            TotalDemand   = $entry.Demand
-            Used          = if ($null -ne $entry.Current) { $entry.Current } else { '?' }
-            Available     = if ($null -ne $entry.Available) { $entry.Available } else { '?' }
-            Limit         = if ($null -ne $entry.Limit) { $entry.Limit } else { '?' }
-            Pass          = $pass
-        })
-    }
-
-    return @{
-        SKUs    = @($results)
-        Quotas  = @($familyResults)
-    }
-}
-
-function Write-InventoryReadinessSummary {
-    [Alias('Write-FleetReadinessSummary')]
-    <#
-    .SYNOPSIS
-        Renders the inventory readiness summary to console with color-coded pass/fail.
-    #>
-    param(
-        [Parameter(Mandatory)]
-        [Alias('FleetResult')]
-        [hashtable]$InventoryResult,
-
-        [Parameter(Mandatory)]
-        [Alias('Fleet')]
-        [hashtable]$Inventory
-    )
-
-    $totalVMs = ($Inventory.Values | Measure-Object -Sum).Sum
-    $totalvCPU = ($InventoryResult.SKUs | Measure-Object -Property TotalvCPU -Sum).Sum
-
-    Write-Host ""
-    Write-Host ("=" * 100) -ForegroundColor Gray
-    Write-Host "INVENTORY READINESS SUMMARY" -ForegroundColor Cyan
-    Write-Host ("=" * 100) -ForegroundColor Gray
-    Write-Host "Inventory: $($Inventory.Count) SKUs | $totalVMs VMs | $totalvCPU vCPUs total" -ForegroundColor White
-    Write-Host ""
-
-    # Per-SKU table
-    $headerFmt = "{0,-28} {1,4} {2,5} {3,5} {4,10} {5,22} {6,-12}"
-    Write-Host ($headerFmt -f 'SKU', 'Qty', 'vCPU', 'Mem', 'Need', 'Capacity', 'Region') -ForegroundColor White
-    Write-Host ("-" * 100) -ForegroundColor Gray
-
-    foreach ($row in $InventoryResult.SKUs) {
-        $capacityColor = switch ($row.Capacity) {
-            'OK'                    { 'Green' }
-            'LIMITED'               { 'Yellow' }
-            'CAPACITY-CONSTRAINED'  { 'DarkYellow' }
-            'NOT FOUND'             { 'Red' }
-            default                 { 'Gray' }
-        }
-        $needStr = "$($row.TotalvCPU) vCPU"
-        $line = $headerFmt -f $row.SKU, $row.Qty, $row.vCPUEach, $row.MemGiBEach, $needStr, $row.Capacity, $row.BestRegion
-        Write-Host $line -ForegroundColor $capacityColor
-    }
-
-    Write-Host ""
-    Write-Host "QUOTA VALIDATION BY FAMILY:" -ForegroundColor White
-    Write-Host ("-" * 100) -ForegroundColor Gray
-
-    $quotaFmt = "{0,-40} {1,8} {2,8} {3,10} {4,8} {5,6}"
-    Write-Host ($quotaFmt -f 'Quota Family', 'Need', 'Used', 'Available', 'Limit', 'Pass') -ForegroundColor White
-    Write-Host ("-" * 100) -ForegroundColor Gray
-
-    $allPass = $true
-    foreach ($q in $InventoryResult.Quotas) {
-        $passStr = if ($null -eq $q.Pass) { '?' } elseif ($q.Pass) { 'YES' } else { 'NO' }
-        $passColor = if ($null -eq $q.Pass) { 'Yellow' } elseif ($q.Pass) { 'Green' } else { 'Red' }
-        if ($q.Pass -eq $false) { $allPass = $false }
-        if ($null -eq $q.Pass) { $allPass = $false }
-
-        $line = $quotaFmt -f $q.QuotaFamily, $q.TotalDemand, $q.Used, $q.Available, $q.Limit, $passStr
-        Write-Host $line -ForegroundColor $passColor
-    }
-
-    Write-Host ""
-    if ($allPass) {
-        Write-Host "INVENTORY READINESS: PASS" -ForegroundColor Green -BackgroundColor Black
-        Write-Host "All SKUs have capacity and quota covers the inventory demand." -ForegroundColor Green
-    }
-    else {
-        Write-Host "INVENTORY READINESS: FAIL" -ForegroundColor Red -BackgroundColor Black
-        Write-Host "One or more SKUs have capacity issues or insufficient quota." -ForegroundColor Red
-        Write-Host "Request quota increase: https://aka.ms/ProdportalCRP/?#create/Microsoft.Support/Parameters/" -ForegroundColor Yellow
-    }
-
-    Write-Host ("=" * 100) -ForegroundColor Gray
-}
-
-function Get-StatusIcon {
-    param(
-        [string]$Status,
-        [Parameter(Mandatory)]
-        [hashtable]$Icons
-    )
-    switch ($Status) {
-        'OK' { return $Icons.OK }
-        'CAPACITY-CONSTRAINED' { return $Icons.CAPACITY }
-        'LIMITED' { return $Icons.LIMITED }
-        'PARTIAL' { return $Icons.PARTIAL }
-        'RESTRICTED' { return $Icons.BLOCKED }
-        default { return $Icons.UNKNOWN }
-    }
-}
 
 function Use-SubscriptionContextSafely {
     param([Parameter(Mandatory)][string]$SubscriptionId)
@@ -2350,59 +1848,6 @@ function Write-RecommendOutputContract {
     }
 
     Write-Host ''
-}
-
-function New-ScanOutputContract {
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
-    param(
-        [Parameter(Mandatory)][AllowEmptyCollection()][array]$SubscriptionData,
-        [Parameter(Mandatory)][hashtable]$FamilyStats,
-        [Parameter(Mandatory)][AllowEmptyCollection()][array]$FamilyDetails,
-        [Parameter(Mandatory)][string[]]$Regions,
-        [Parameter(Mandatory)][string[]]$SubscriptionIds
-    )
-
-    $families = @(
-        $FamilyStats.Keys | Sort-Object | ForEach-Object {
-            $family = $_
-            $familyData = $FamilyStats[$family]
-            [pscustomobject]@{
-                family                 = $family
-                totalSkusDiscovered    = $familyData.TotalSkus
-                availableRegionCount   = $familyData.AvailableRegions.Count
-                constrainedRegionCount = $familyData.ConstrainedRegions.Count
-                largestSku             = $familyData.LargestSKU
-            }
-        }
-    )
-
-    $regionErrors = @()
-    foreach ($sub in $SubscriptionData) {
-        foreach ($regionData in $sub.RegionData) {
-            if ($regionData.Error) {
-                $regionErrors += [pscustomobject]@{
-                    subscriptionId = $sub.SubscriptionId
-                    region         = [string](Get-SafeString $regionData.Region)
-                    error          = $regionData.Error
-                }
-            }
-        }
-    }
-
-    return [pscustomobject]@{
-        schemaVersion = '1.0'
-        mode          = 'scan'
-        generatedAt   = (Get-Date).ToString('o')
-        subscriptions = @($SubscriptionIds)
-        regions       = @($Regions)
-        summary       = [pscustomobject]@{
-            familyCount      = $families.Count
-            detailRowCount   = @($FamilyDetails).Count
-            regionErrorCount = @($regionErrors).Count
-        }
-        families      = @($families)
-        regionErrors  = @($regionErrors)
-    }
 }
 
 function Invoke-RecommendMode {
@@ -3666,13 +3111,6 @@ if ($Regions.Count -gt $maxRegions -and -not $lifecycleEntries) {
     }
 }
 
-# Drill-down prompt
-if (-not $NoPrompt -and -not $EnableDrill) {
-    Write-Host "`nDrill down into specific families/SKUs? (y/N): " -ForegroundColor Yellow -NoNewline
-    $drillInput = Read-Host
-    if ($drillInput -match '^y(es)?$') { $EnableDrill = $true }
-}
-
 # Export prompt
 if (-not $ExportPath -and -not $NoPrompt -and -not $AutoExport) {
     Write-Host "`nExport results to file? (y/N): " -ForegroundColor Yellow -NoNewline
@@ -4185,24 +3623,9 @@ catch {
 }
 
 #endregion Data Collection
-#region Inventory Readiness
-
-if ($Inventory -and $Inventory.Count -gt 0) {
-    $inventoryResult = Get-InventoryReadiness -Inventory $Inventory -SubscriptionData $allSubscriptionData
-    Write-InventoryReadinessSummary -InventoryResult $inventoryResult -Inventory $Inventory
-
-    if ($JsonOutput) {
-        $inventoryResult | ConvertTo-Json -Depth 5
-    }
-
-    # Inventory mode exits after summary — no need to render full scan output
-    return
-}
-
-#endregion Inventory Readiness
 #region Lifecycle Recommendations
 
-if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count -gt 0) {
+if ($lifecycleEntries.Count -gt 0) {
     $lifecycleResults = [System.Collections.Generic.List[PSCustomObject]]::new()
     $skuIndex = 0
 
@@ -4837,13 +4260,13 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
     # XLSX Export — auto-export lifecycle results
     if (-not $JsonOutput -and (Test-ImportExcelModule)) {
         $lcTimestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-        if ($LifecycleRecommendations) {
-            $sourceDir = [System.IO.Path]::GetDirectoryName((Resolve-Path -LiteralPath $LifecycleRecommendations).Path)
-            $sourceBase = [System.IO.Path]::GetFileNameWithoutExtension($LifecycleRecommendations)
+        if ($InputFile) {
+            $sourceDir = [System.IO.Path]::GetDirectoryName((Resolve-Path -LiteralPath $InputFile).Path)
+            $sourceBase = [System.IO.Path]::GetFileNameWithoutExtension($InputFile)
         }
         else {
             $sourceDir = $PWD.Path
-            $sourceBase = 'LifecycleScan'
+            $sourceBase = 'AzVMLifecycle'
         }
         $lcXlsxFile = Join-Path $sourceDir "${sourceBase}_Lifecycle_Recommendations_${lcTimestamp}.xlsx"
 
@@ -5238,1187 +4661,6 @@ if (($LifecycleRecommendations -or $LifecycleScan) -and $lifecycleEntries.Count 
 }
 
 #endregion Lifecycle Recommendations
-#region Recommend Mode
-
-if ($Recommend) {
-    Invoke-RecommendMode -TargetSkuName $Recommend -SubscriptionData $allSubscriptionData `
-        -FamilyInfo $FamilyInfo -Icons $Icons -FetchPricing ([bool]$FetchPricing) `
-        -ShowSpot $ShowSpot.IsPresent -ShowPlacement $ShowPlacement.IsPresent `
-        -AllowMixedArch $AllowMixedArch.IsPresent -MinvCPU $MinvCPU -MinMemoryGB $MinMemoryGB `
-        -MinScore $MinScore -TopN $TopN -DesiredCount $DesiredCount `
-        -JsonOutput $JsonOutput.IsPresent -MaxRetries $MaxRetries `
-        -RunContext $script:RunContext -OutputWidth $script:OutputWidth
-    return
-}
-
-#endregion Recommend Mode
-#region Process Results
-
-$allFamilyStats = @{}
-$familyDetails = [System.Collections.Generic.List[PSCustomObject]]::new()
-$familySkuIndex = @{}
-$processStartTime = Get-Date
-
-foreach ($subscriptionData in $allSubscriptionData) {
-    $subName = $subscriptionData.SubscriptionName
-    $totalRegions = $subscriptionData.RegionData.Count
-    $currentRegion = 0
-
-    foreach ($data in $subscriptionData.RegionData) {
-        $currentRegion++
-        $region = Get-SafeString $data.Region
-
-        # Progress bar for processing
-        $percentComplete = [math]::Round(($currentRegion / $totalRegions) * 100)
-        $elapsed = (Get-Date) - $processStartTime
-        Write-Progress -Activity "Processing Region Data" -Status "$region ($currentRegion of $totalRegions)" -PercentComplete $percentComplete -CurrentOperation "Elapsed: $([math]::Round($elapsed.TotalSeconds, 1))s"
-
-        Write-Host "`n" -NoNewline
-        Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
-        Write-Host "REGION: $region" -ForegroundColor Yellow
-        Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
-
-        if ($data.Error) {
-            Write-Host "ERROR: $($data.Error)" -ForegroundColor Red
-            continue
-        }
-
-        $familyGroups = @{}
-        $quotaLookup = @{}
-        foreach ($q in $data.Quotas) { $quotaLookup[$q.Name.Value] = $q }
-        foreach ($sku in $data.Skus) {
-            $family = Get-SkuFamily $sku.Name
-            if (-not $familyGroups[$family]) { $familyGroups[$family] = @() }
-            $familyGroups[$family] += $sku
-        }
-
-        Write-Host "`nQUOTA SUMMARY:" -ForegroundColor Cyan
-        $quotaLines = $data.Quotas | Where-Object {
-            $_.Name.Value -match 'Total Regional vCPUs|Family vCPUs'
-        } | Select-Object @{n = 'Family'; e = { $_.Name.LocalizedValue } },
-        @{n = 'Used'; e = { $_.CurrentValue } },
-        @{n = 'Limit'; e = { $_.Limit } },
-        @{n = 'Available'; e = { $_.Limit - $_.CurrentValue } }
-
-        if ($quotaLines) {
-            # Fixed-width quota table (175 chars total)
-            $qColWidths = [ordered]@{ Family = 50; Used = 15; Limit = 15; Available = 15 }
-            $qHeader = foreach ($c in $qColWidths.Keys) { $c.PadRight($qColWidths[$c]) }
-            Write-Host ($qHeader -join '  ') -ForegroundColor Cyan
-            Write-Host ('-' * $script:OutputWidth) -ForegroundColor Gray
-            foreach ($q in $quotaLines) {
-                $qRow = foreach ($c in $qColWidths.Keys) {
-                    $v = "$($q.$c)"
-                    if ($v.Length -gt $qColWidths[$c]) { $v = $v.Substring(0, $qColWidths[$c] - 1) + '…' }
-                    $v.PadRight($qColWidths[$c])
-                }
-                Write-Host ($qRow -join '  ') -ForegroundColor White
-            }
-            Write-Host ""
-        }
-        else {
-            Write-Host "No quota data available" -ForegroundColor DarkYellow
-        }
-
-        Write-Host "SKU FAMILIES:" -ForegroundColor Cyan
-
-        $rows = [System.Collections.Generic.List[PSCustomObject]]::new()
-        foreach ($family in ($familyGroups.Keys | Sort-Object)) {
-            $skus = $familyGroups[$family]
-
-            $largestSku = $skus | ForEach-Object {
-                @{
-                    Sku    = $_
-                    vCPU   = [int](Get-CapValue $_ 'vCPUs')
-                    Memory = [int](Get-CapValue $_ 'MemoryGB')
-                }
-            } | Sort-Object vCPU -Descending | Select-Object -First 1
-
-            $availableCount = ($skus | Where-Object { -not (Get-RestrictionReason $_) }).Count
-            $restrictions = Get-RestrictionDetails $largestSku.Sku
-            $capacity = $restrictions.Status
-            $zoneStatus = Format-ZoneStatus $restrictions.ZonesOK $restrictions.ZonesLimited $restrictions.ZonesRestricted
-            $quotaInfo = Get-QuotaAvailable -QuotaLookup $quotaLookup -SkuFamily $largestSku.Sku.Family
-
-            # Get pricing - find smallest SKU with pricing available
-            $priceHrStr = '-'
-            $priceMoStr = '-'
-            # Get pricing data - handle potential array wrapping
-            $regionPricingData = $script:RunContext.RegionPricing[$region]
-            $regularPriceMap = Get-RegularPricingMap -PricingContainer $regionPricingData
-            if ($FetchPricing -and $regularPriceMap -and $regularPriceMap.Count -gt 0) {
-                $sortedSkus = $skus | ForEach-Object {
-                    @{ Sku = $_; vCPU = [int](Get-CapValue $_ 'vCPUs') }
-                } | Sort-Object vCPU
-
-                foreach ($skuInfo in $sortedSkus) {
-                    $skuName = $skuInfo.Sku.Name
-                    $pricing = $regularPriceMap[$skuName]
-                    if ($pricing) {
-                        $priceHrStr = '$' + $pricing.Hourly.ToString('0.00')
-                        $priceMoStr = '$' + $pricing.Monthly.ToString('0')
-                        break
-                    }
-                }
-            }
-
-            $row = [pscustomobject]@{
-                Family  = $family
-                SKUs    = $skus.Count
-                OK      = $availableCount
-                Largest = "{0}vCPU/{1}GB" -f $largestSku.vCPU, $largestSku.Memory
-                Zones   = $zoneStatus
-                Status  = $capacity
-                Quota   = if ($null -ne $quotaInfo.Available) { $quotaInfo.Available } else { '?' }
-            }
-
-            if ($FetchPricing) {
-                $row | Add-Member -NotePropertyName '$/Hr' -NotePropertyValue $priceHrStr
-                $row | Add-Member -NotePropertyName '$/Mo' -NotePropertyValue $priceMoStr
-            }
-
-            $rows.Add($row)
-
-            # Track for drill-down
-            if (-not $familySkuIndex.ContainsKey($family)) { $familySkuIndex[$family] = @{} }
-
-            foreach ($sku in $skus) {
-                $familySkuIndex[$family][$sku.Name] = $true
-                $skuRestrictions = Get-RestrictionDetails $sku
-
-                # Per-SKU quota: use SKU's exact .Family property for specific quota bucket
-                $quotaInfo = Get-QuotaAvailable -QuotaLookup $quotaLookup -SkuFamily $sku.Family
-
-                # Get individual SKU pricing
-                $skuPriceHr = '-'
-                $skuPriceMo = '-'
-                if ($FetchPricing -and $regularPriceMap) {
-                    $skuPricing = $regularPriceMap[$sku.Name]
-                    if ($skuPricing) {
-                        $skuPriceHr = '$' + $skuPricing.Hourly.ToString('0.00')
-                        $skuPriceMo = '$' + $skuPricing.Monthly.ToString('0')
-                    }
-                }
-
-                # Get SKU capabilities for Gen/Arch
-                $skuCaps = Get-SkuCapabilities -Sku $sku
-                $genDisplay = $skuCaps.HyperVGenerations -replace 'V', '' -replace ',', ','
-                $archDisplay = $skuCaps.CpuArchitecture
-
-                # Check image compatibility if image was specified
-                $imgCompat = '–'
-                $imgReason = ''
-                if ($script:RunContext.ImageReqs) {
-                    $compatResult = Test-ImageSkuCompatibility -ImageReqs $script:RunContext.ImageReqs -SkuCapabilities $skuCaps
-                    if ($compatResult.Compatible) {
-                        $imgCompat = if ($supportsUnicode) { '✓' } else { '[+]' }
-                    }
-                    else {
-                        $imgCompat = if ($supportsUnicode) { '✗' } else { '[-]' }
-                        $imgReason = $compatResult.Reason
-                    }
-                }
-
-                $detailObj = [pscustomobject]@{
-                    Subscription = [string]$subName
-                    Region       = Get-SafeString $region
-                    Family       = [string]$family
-                    SKU          = [string]$sku.Name
-                    vCPU         = Get-CapValue $sku 'vCPUs'
-                    MemGiB       = Get-CapValue $sku 'MemoryGB'
-                    Gen          = $genDisplay
-                    Arch         = $archDisplay
-                    ZoneStatus   = Format-ZoneStatus $skuRestrictions.ZonesOK $skuRestrictions.ZonesLimited $skuRestrictions.ZonesRestricted
-                    Capacity     = [string]$skuRestrictions.Status
-                    Reason       = ($skuRestrictions.RestrictionReasons -join ', ')
-                    QuotaAvail   = if ($null -ne $quotaInfo.Available) { $quotaInfo.Available } else { '?' }
-                    QuotaLimit   = if ($null -ne $quotaInfo.Limit) { $quotaInfo.Limit } else { $null }
-                    QuotaCurrent = if ($null -ne $quotaInfo.Current) { $quotaInfo.Current } else { $null }
-                    ImgCompat    = $imgCompat
-                    ImgReason    = $imgReason
-                    Alloc        = '-'
-                }
-
-                if ($FetchPricing) {
-                    $detailObj | Add-Member -NotePropertyName '$/Hr' -NotePropertyValue $skuPriceHr
-                    $detailObj | Add-Member -NotePropertyName '$/Mo' -NotePropertyValue $skuPriceMo
-                }
-
-                $familyDetails.Add($detailObj)
-            }
-
-            # Track for summary
-            if (-not $allFamilyStats[$family]) {
-                $allFamilyStats[$family] = @{ Regions = @{}; TotalAvailable = 0 }
-            }
-            $regionKey = Get-SafeString $region
-            $allFamilyStats[$family].Regions[$regionKey] = @{
-                Count     = $skus.Count
-                Available = $availableCount
-                Capacity  = $capacity
-            }
-        }
-
-        if ($rows.Count -gt 0) {
-            # Fixed-width table formatting (total width = 175 chars with pricing)
-            $colWidths = [ordered]@{
-                Family  = 12
-                SKUs    = 6
-                OK      = 5
-                Largest = 18
-                Zones   = 28
-                Status  = 22
-                Quota   = 10
-            }
-            if ($FetchPricing) {
-                $colWidths['$/Hr'] = 10
-                $colWidths['$/Mo'] = 10
-            }
-
-            $headerParts = foreach ($col in $colWidths.Keys) {
-                $col.PadRight($colWidths[$col])
-            }
-            Write-Host ($headerParts -join '  ') -ForegroundColor Cyan
-            Write-Host ('-' * $script:OutputWidth) -ForegroundColor Gray
-
-            foreach ($row in $rows) {
-                $rowParts = foreach ($col in $colWidths.Keys) {
-                    $val = if ($null -ne $row.$col) { "$($row.$col)" } else { '' }
-                    $width = $colWidths[$col]
-                    if ($val.Length -gt $width) { $val = $val.Substring(0, $width - 1) + '…' }
-                    $val.PadRight($width)
-                }
-
-                $color = switch ($row.Status) {
-                    'OK' { 'Green' }
-                    { $_ -match 'LIMITED|CAPACITY' } { 'Yellow' }
-                    { $_ -match 'RESTRICTED|BLOCKED' } { 'Red' }
-                    default { 'White' }
-                }
-                Write-Host ($rowParts -join '  ') -ForegroundColor $color
-            }
-        }
-    }
-}
-
-# Optional placement enrichment for filtered scan mode (SKU-level tables only)
-if ($ShowPlacement -and $SkuFilter -and $SkuFilter.Count -gt 0) {
-    $filteredSkuNames = @($familyDetails | Select-Object -ExpandProperty SKU -Unique)
-    if ($filteredSkuNames.Count -gt 5) {
-        Write-Warning "Placement score lookup skipped in scan mode: filtered set contains $($filteredSkuNames.Count) SKUs (limit is 5). Refine -SkuFilter to 5 or fewer SKUs."
-    }
-    elseif ($filteredSkuNames.Count -gt 0) {
-        $scanPlacementScores = Get-PlacementScores -SkuNames $filteredSkuNames -Regions $Regions -DesiredCount $DesiredCount -MaxRetries $MaxRetries -Caches $script:RunContext.Caches
-        foreach ($detail in $familyDetails) {
-            $allocKey = "{0}|{1}" -f $detail.SKU, $detail.Region.ToLower()
-            $allocValue = if ($scanPlacementScores.ContainsKey($allocKey)) { [string]$scanPlacementScores[$allocKey].Score } else { 'N/A' }
-            $detail.Alloc = $allocValue
-        }
-    }
-}
-
-#endregion Process Results
-
-$script:RunContext.ScanOutput = New-ScanOutputContract -SubscriptionData $allSubscriptionData -FamilyStats $allFamilyStats -FamilyDetails $familyDetails -Regions $Regions -SubscriptionIds $TargetSubIds
-
-if ($JsonOutput) {
-    $script:RunContext.ScanOutput | ConvertTo-Json -Depth 8
-    return
-}
-
-#region Drill-Down (if enabled)
-
-if ($EnableDrill -and $familySkuIndex.Keys.Count -gt 0) {
-    $familyList = @($familySkuIndex.Keys | Sort-Object)
-
-    if ($NoPrompt) {
-        # Auto-select all families and all SKUs when -NoPrompt is used
-        $SelectedFamilyFilter = if ($FamilyFilter -and $FamilyFilter.Count -gt 0) {
-            # Use provided family filter
-            $FamilyFilter | Where-Object { $familyList -contains $_ }
-        }
-        else {
-            # Select all families
-            $familyList
-        }
-    }
-    else {
-        # Interactive mode
-        $drillWidth = if ($script:OutputWidth) { $script:OutputWidth } else { 100 }
-        Write-Host "`n" -NoNewline
-        Write-Host ("=" * $drillWidth) -ForegroundColor Gray
-        Write-Host "DRILL-DOWN: SELECT FAMILIES" -ForegroundColor Green
-        Write-Host ("=" * $drillWidth) -ForegroundColor Gray
-
-        for ($i = 0; $i -lt $familyList.Count; $i++) {
-            $fam = $familyList[$i]
-            $skuCount = $familySkuIndex[$fam].Keys.Count
-            Write-Host "$($i + 1). $fam (SKUs: $skuCount)" -ForegroundColor Cyan
-        }
-
-        Write-Host ""
-        Write-Host "INSTRUCTIONS:" -ForegroundColor Yellow
-        Write-Host "  - Enter numbers to pick one or more families (e.g., '1', '1,3,5', '1 3 5')" -ForegroundColor White
-        Write-Host "  - Press Enter to include ALL families" -ForegroundColor White
-        $famSel = Read-Host "Select families"
-
-        if ([string]::IsNullOrWhiteSpace($famSel)) {
-            $SelectedFamilyFilter = $familyList
-        }
-        else {
-            $nums = $famSel -split '[,\s]+' | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ }
-            $nums = @($nums | Sort-Object -Unique)
-            $invalidNums = $nums | Where-Object { $_ -lt 1 -or $_ -gt $familyList.Count }
-            if ($invalidNums.Count -gt 0) {
-                Write-Host "ERROR: Invalid family selection(s): $($invalidNums -join ', ')" -ForegroundColor Red
-                throw "Invalid family selection(s): $($invalidNums -join ', ')."
-            }
-            $SelectedFamilyFilter = @($nums | ForEach-Object { $familyList[$_ - 1] })
-        }
-
-        # SKU selection mode
-        Write-Host ""
-        Write-Host "SKU SELECTION MODE" -ForegroundColor Green
-        Write-Host "  - Press Enter: pick SKUs per family (prompts for each)" -ForegroundColor White
-        Write-Host "  - Type 'all' : include ALL SKUs for every selected family (skip prompts)" -ForegroundColor White
-        Write-Host "  - Type 'none': cancel SKU drill-down and return to reports" -ForegroundColor White
-        $skuMode = Read-Host "Choose SKU selection mode"
-
-        if ($skuMode -match '^(none|cancel|skip)$') {
-            Write-Host "Skipping SKU drill-down as requested." -ForegroundColor Yellow
-            $SelectedFamilyFilter = @()
-        }
-        elseif ($skuMode -match '^(all)$') {
-            foreach ($fam in $SelectedFamilyFilter) {
-                $SelectedSkuFilter[$fam] = $null  # null means all SKUs
-            }
-        }
-        else {
-            foreach ($fam in $SelectedFamilyFilter) {
-                $skus = @($familySkuIndex[$fam].Keys | Sort-Object)
-                Write-Host ""
-                Write-Host "Family: $fam" -ForegroundColor Green
-                for ($j = 0; $j -lt $skus.Count; $j++) {
-                    Write-Host "   $($j + 1). $($skus[$j])" -ForegroundColor Cyan
-                }
-                Write-Host ""
-                Write-Host "INSTRUCTIONS:" -ForegroundColor Yellow
-                Write-Host "  - Enter numbers to focus on specific SKUs (e.g., '1', '1,2', '1 2')" -ForegroundColor White
-                Write-Host "  - Press Enter to include ALL SKUs in this family" -ForegroundColor White
-                $skuSel = Read-Host "Select SKUs for family $fam"
-
-                if ([string]::IsNullOrWhiteSpace($skuSel)) {
-                    $SelectedSkuFilter[$fam] = $null  # null means all
-                }
-                else {
-                    $skuNums = $skuSel -split '[,\s]+' | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ }
-                    $skuNums = @($skuNums | Sort-Object -Unique)
-                    $invalidSku = $skuNums | Where-Object { $_ -lt 1 -or $_ -gt $skus.Count }
-                    if ($invalidSku.Count -gt 0) {
-                        Write-Host "ERROR: Invalid SKU selection(s): $($invalidSku -join ', ')" -ForegroundColor Red
-                        throw "Invalid SKU selection(s): $($invalidSku -join ', ')."
-                    }
-                    $SelectedSkuFilter[$fam] = @($skuNums | ForEach-Object { $skus[$_ - 1] })
-                }
-            }
-        }
-    }  # End of else (interactive mode)
-
-    # Display drill-down results
-    if ($SelectedFamilyFilter.Count -gt 0) {
-        $drillWidth = if ($script:OutputWidth) { $script:OutputWidth } else { 100 }
-        Write-Host ""
-        Write-Host ("=" * $drillWidth) -ForegroundColor Gray
-        Write-Host "FAMILY / SKU DRILL-DOWN RESULTS" -ForegroundColor Green
-        Write-Host ("=" * $drillWidth) -ForegroundColor Gray
-        Write-Host "Note: Avail shows the family's shared vCPU pool per region (not per SKU)." -ForegroundColor DarkGray
-
-        foreach ($fam in $SelectedFamilyFilter) {
-            Write-Host "`nFamily: $fam (shared quota per region)" -ForegroundColor Cyan
-
-            # Show image requirements if checking compatibility
-            if ($script:RunContext.ImageReqs) {
-                Write-Host "Image: $ImageURN (Requires: $($script:RunContext.ImageReqs.Gen) | $($script:RunContext.ImageReqs.Arch))" -ForegroundColor DarkCyan
-            }
-
-            $skuFilter = $null
-            if ($SelectedSkuFilter.ContainsKey($fam)) { $skuFilter = $SelectedSkuFilter[$fam] }
-
-            $detailRows = $familyDetails | Where-Object {
-                $_.Family -eq $fam -and (
-                    -not $skuFilter -or $skuFilter -contains $_.SKU
-                )
-            }
-
-            if ($detailRows.Count -gt 0) {
-                # Group by region and display with region sub-headers
-                $regionGroups = $detailRows | Group-Object Region | Sort-Object Name
-
-                foreach ($regionGroup in $regionGroups) {
-                    $regionName = $regionGroup.Name
-                    $regionRows = $regionGroup.Group | Sort-Object SKU
-
-                    # Get quota info for this family in this region
-                    $regionQuota = $regionRows | Select-Object -First 1
-                    $quotaHeader = if ($null -ne $regionQuota.QuotaLimit -and $null -ne $regionQuota.QuotaCurrent) {
-                        $avail = $regionQuota.QuotaLimit - $regionQuota.QuotaCurrent
-                        "Quota: $($regionQuota.QuotaCurrent) of $($regionQuota.QuotaLimit) vCPUs used | $avail available"
-                    }
-                    elseif ($regionQuota.QuotaAvail -and $regionQuota.QuotaAvail -ne '?') {
-                        "Quota: $($regionQuota.QuotaAvail) vCPUs available"
-                    }
-                    else {
-                        "Quota: N/A"
-                    }
-
-                    Write-Host "`nRegion: $regionName ($quotaHeader)" -ForegroundColor Yellow
-                    Write-Host ("-" * $drillWidth) -ForegroundColor Gray
-
-                    # Fixed-width drill-down table (no Region column since it's in header)
-                    $dColWidths = [ordered]@{ SKU = 26; vCPU = 5; MemGiB = 6; Gen = 5; Arch = 5; ZoneStatus = 22; Capacity = 12; Avail = 8 }
-                    if ($ShowPlacement -and $SkuFilter -and $SkuFilter.Count -gt 0) {
-                        $dColWidths['Alloc'] = 8
-                    }
-                    if ($FetchPricing) {
-                        $dColWidths['$/Hr'] = 8
-                        $dColWidths['$/Mo'] = 8
-                    }
-                    if ($script:RunContext.ImageReqs) {
-                        $dColWidths['Img'] = 4
-                    }
-                    $dColWidths['Reason'] = 24
-
-                    $dHeader = foreach ($c in $dColWidths.Keys) { $c.PadRight($dColWidths[$c]) }
-                    Write-Host ($dHeader -join '  ') -ForegroundColor Cyan
-
-                    foreach ($dr in $regionRows) {
-                        $dRow = foreach ($c in $dColWidths.Keys) {
-                            # Map column names to object properties
-                            $propName = switch ($c) {
-                                'Img' { 'ImgCompat' }
-                                'Avail' { 'QuotaAvail' }
-                                default { $c }
-                            }
-                            $v = if ($null -ne $dr.$propName) { "$($dr.$propName)" } else { '' }
-                            $w = $dColWidths[$c]
-                            if ($v.Length -gt $w) { $v = $v.Substring(0, $w - 1) + '…' }
-                            $v.PadRight($w)
-                        }
-                        # Determine row color based on capacity and image compatibility
-                        $color = switch ($dr.Capacity) {
-                            'OK' { if ($dr.ImgCompat -eq '✗' -or $dr.ImgCompat -eq '[-]') { 'DarkYellow' } else { 'Green' } }
-                            { $_ -match 'LIMITED|CAPACITY' } { 'Yellow' }
-                            { $_ -match 'RESTRICTED|BLOCKED' } { 'Red' }
-                            default { 'White' }
-                        }
-                        Write-Host ($dRow -join '  ') -ForegroundColor $color
-                    }
-                }
-            }
-            else {
-                Write-Host "No matching SKUs found for selection." -ForegroundColor DarkYellow
-            }
-        }
-    }
-}
-
-#endregion Drill-Down (if enabled)
-#region Interactive Recommend Mode Prompt
-
-if (-not $NoPrompt -and -not $Recommend) {
-    Write-Host "`nFind alternative SKUs for a specific VM? (y/N): " -ForegroundColor Yellow -NoNewline
-    $recommendInput = Read-Host
-    if ($recommendInput -match '^y(es)?$') {
-        Write-Host "`nEnter VM SKU name (e.g., 'Standard_D4s_v5' or 'D4s_v5'): " -ForegroundColor Cyan -NoNewline
-        $recommendSku = Read-Host
-        if ($recommendSku -and $recommendSku.Trim()) {
-            $recommendSku = $recommendSku.Trim()
-            if ($recommendSku -notmatch '^Standard_') {
-                $recommendSku = "Standard_$recommendSku"
-            }
-            Invoke-RecommendMode -TargetSkuName $recommendSku -SubscriptionData $allSubscriptionData `
-                -FamilyInfo $FamilyInfo -Icons $Icons -FetchPricing ([bool]$FetchPricing) `
-                -ShowSpot $ShowSpot.IsPresent -ShowPlacement $ShowPlacement.IsPresent `
-                -AllowMixedArch $AllowMixedArch.IsPresent -MinvCPU $MinvCPU -MinMemoryGB $MinMemoryGB `
-                -MinScore $MinScore -TopN $TopN -DesiredCount $DesiredCount `
-                -JsonOutput $JsonOutput.IsPresent -MaxRetries $MaxRetries `
-                -RunContext $script:RunContext -OutputWidth $script:OutputWidth
-        }
-        else {
-            Write-Host "Skipping recommend mode (no SKU provided)." -ForegroundColor Yellow
-        }
-    }
-}
-
-#endregion Interactive Recommend Mode Prompt
-#region Multi-Region Matrix
-
-Write-Host "`n" -NoNewline
-
-# Build unique region list
-$allRegions = @()
-foreach ($family in $allFamilyStats.Keys) {
-    foreach ($regionKey in $allFamilyStats[$family].Regions.Keys) {
-        $regionStr = Get-SafeString $regionKey
-        if ($allRegions -notcontains $regionStr) { $allRegions += $regionStr }
-    }
-}
-$allRegions = @($allRegions | Sort-Object)
-
-$colWidth = 12
-$headerLine = "Family".PadRight(10)
-foreach ($r in $allRegions) { $headerLine += " | " + $r.PadRight($colWidth) }
-$matrixWidth = $headerLine.Length
-
-# Set script-level output width for consistent separators
-$script:OutputWidth = [Math]::Max($matrixWidth, $DefaultTerminalWidth)
-
-# Display section header with dynamic width
-Write-Host ("=" * $matrixWidth) -ForegroundColor Gray
-Write-Host "MULTI-REGION CAPACITY MATRIX" -ForegroundColor Green
-Write-Host ("=" * $matrixWidth) -ForegroundColor Gray
-Write-Host ""
-Write-Host "SUMMARY: Best-case status for each VM family (e.g., D, F, NC) per region." -ForegroundColor DarkGray
-Write-Host "This shows if ANY SKUs in the family are available - not all SKUs." -ForegroundColor DarkGray
-Write-Host "For individual SKU details, see the detailed table above." -ForegroundColor DarkGray
-Write-Host ""
-
-# Display table header
-Write-Host $headerLine -ForegroundColor Cyan
-Write-Host ("-" * $matrixWidth) -ForegroundColor Gray
-
-# Data rows
-foreach ($family in ($allFamilyStats.Keys | Sort-Object)) {
-    $stats = $allFamilyStats[$family]
-    $line = $family.PadRight(10)
-    $bestStatus = $null
-
-    foreach ($regionItem in $allRegions) {
-        $region = Get-SafeString $regionItem
-        $regionStats = $stats.Regions[$region]
-
-        if ($regionStats) {
-            $status = $regionStats.Capacity
-            $icon = Get-StatusIcon -Status $status -Icons $Icons
-            if ($status -eq 'OK') { $bestStatus = 'OK' }
-            elseif ($status -match 'CONSTRAINED|PARTIAL' -and $bestStatus -ne 'OK') { $bestStatus = 'MIXED' }
-            $line += " | " + $icon.PadRight($colWidth)
-        }
-        else {
-            $line += " | " + "-".PadRight($colWidth)
-        }
-    }
-
-    $color = switch ($bestStatus) { 'OK' { 'Green' }; 'MIXED' { 'Yellow' }; default { 'Gray' } }
-    Write-Host $line -ForegroundColor $color
-}
-
-Write-Host ""
-Write-Host "HOW TO READ THIS:" -ForegroundColor Cyan
-Write-Host "  Green row  = At least one SKU in this family is fully available." -ForegroundColor Green
-Write-Host "  Yellow row = Some SKUs may work, but there are constraints." -ForegroundColor Yellow
-Write-Host "  Gray row   = No SKUs from this family available in scanned regions." -ForegroundColor Gray
-Write-Host ""
-Write-Host "STATUS MEANINGS:" -ForegroundColor Cyan
-Write-Host ("  $($Icons.OK)".PadRight(16) + "= Ready to deploy. No restrictions.") -ForegroundColor Green
-Write-Host ("  $($Icons.CAPACITY)".PadRight(16) + "= Azure is low on hardware. Try a different zone or wait.") -ForegroundColor Yellow
-Write-Host ("  $($Icons.LIMITED)".PadRight(16) + "= Your subscription can't use this. Request access via support ticket.") -ForegroundColor Yellow
-Write-Host ("  $($Icons.PARTIAL)".PadRight(16) + "= Some zones work, others are blocked. No zone redundancy.") -ForegroundColor Yellow
-Write-Host ("  $($Icons.BLOCKED)".PadRight(16) + "= Cannot deploy. Pick a different region or SKU.") -ForegroundColor Red
-Write-Host ""
-Write-Host "NOTE: 'OK' means SOME SKUs work, not ALL. Check the detailed table above" -ForegroundColor DarkYellow
-Write-Host "      for specific SKU availability (e.g., Standard_D4s_v5 vs Standard_D8s_v5)." -ForegroundColor DarkYellow
-Write-Host ""
-Write-Host "NEED MORE CAPACITY?" -ForegroundColor Cyan
-Write-Host "  LIMITED status: Request quota increase at:" -ForegroundColor Yellow
-# Use environment-aware portal URL
-$quotaPortalUrl = if ($script:AzureEndpoints -and $script:AzureEndpoints.EnvironmentName) {
-    switch ($script:AzureEndpoints.EnvironmentName) {
-        'AzureUSGovernment' { 'https://portal.azure.us/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas' }
-        'AzureChinaCloud' { 'https://portal.azure.cn/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas' }
-        'AzureGermanCloud' { 'https://portal.microsoftazure.de/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas' }
-        default { 'https://portal.azure.com/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas' }
-    }
-}
-else {
-    'https://portal.azure.com/#view/Microsoft_Azure_Capacity/QuotaMenuBlade/~/myQuotas'
-}
-Write-Host "  $quotaPortalUrl" -ForegroundColor DarkCyan
-if ($FetchPricing) {
-    Write-Host ""
-    Write-Host "PRICING NOTE:" -ForegroundColor Cyan
-    Write-Host "  Prices shown are Pay-As-You-Go (Linux). Azure Hybrid Benefit can reduce costs 40-60%." -ForegroundColor DarkGray
-}
-
-#endregion Multi-Region Matrix
-#region Deployment Recommendations
-
-Write-Host "`n" -NoNewline
-Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
-Write-Host "DEPLOYMENT RECOMMENDATIONS" -ForegroundColor Green
-Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
-Write-Host ""
-
-$bestPerRegion = @{}
-foreach ($r in $allRegions) { $bestPerRegion[$r] = @() }
-
-foreach ($family in $allFamilyStats.Keys) {
-    $stats = $allFamilyStats[$family]
-    foreach ($regionKey in $stats.Regions.Keys) {
-        $region = Get-SafeString $regionKey
-        if ($stats.Regions[$regionKey].Capacity -eq 'OK') {
-            $bestPerRegion[$region] += $family
-        }
-    }
-}
-
-$hasBest = ($bestPerRegion.Values | Measure-Object -Property Count -Sum).Sum -gt 0
-if ($hasBest) {
-    Write-Host "Regions with full capacity:" -ForegroundColor Green
-    foreach ($r in $allRegions) {
-        $families = @($bestPerRegion[$r])
-        if ($families.Count -gt 0) {
-            Write-Host "  $r`:" -ForegroundColor Green -NoNewline
-            Write-Host " $($families -join ', ')" -ForegroundColor White
-        }
-    }
-}
-else {
-    Write-Host "No regions have full capacity for the scanned families." -ForegroundColor Yellow
-    Write-Host "Best available options (with constraints):" -ForegroundColor Yellow
-    foreach ($family in ($allFamilyStats.Keys | Sort-Object | Select-Object -First 5)) {
-        $stats = $allFamilyStats[$family]
-        $bestRegion = $stats.Regions.Keys | Sort-Object { $stats.Regions[$_].Available } -Descending | Select-Object -First 1
-        if ($bestRegion) {
-            $regionStat = $stats.Regions[$bestRegion]
-            Write-Host "  $family in $bestRegion" -ForegroundColor Yellow -NoNewline
-            Write-Host " ($($regionStat.Capacity))" -ForegroundColor DarkYellow
-        }
-    }
-}
-
-#endregion Deployment Recommendations
-#region Detailed Breakdown
-
-Write-Host "`n" -NoNewline
-Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
-Write-Host "DETAILED CROSS-REGION BREAKDOWN" -ForegroundColor Green
-Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
-Write-Host ""
-Write-Host "SUMMARY: Shows which regions have capacity for each VM family." -ForegroundColor DarkGray
-Write-Host "  'Available'   = At least one SKU in this family can be deployed here" -ForegroundColor DarkGray
-Write-Host "  'Constrained' = Family has issues in this region (see reason in parentheses)" -ForegroundColor DarkGray
-Write-Host "  '(none)'      = No regions in that category for this family" -ForegroundColor DarkGray
-Write-Host ""
-Write-Host "IMPORTANT: This is a family-level summary. Individual SKUs within a family" -ForegroundColor DarkYellow
-Write-Host "           may have different availability. Check the detailed table above." -ForegroundColor DarkYellow
-Write-Host ""
-
-# Calculate column widths based on ACTUAL terminal width for better Cloud Shell support
-# Try to detect actual console width, fall back to a safe default
-$actualWidth = try {
-    $hostWidth = $Host.UI.RawUI.WindowSize.Width
-    if ($hostWidth -gt 0) { $hostWidth } else { $DefaultTerminalWidth }
-}
-catch { $DefaultTerminalWidth }
-
-# Use the smaller of OutputWidth or actual terminal width for this table
-$tableWidth = [Math]::Min($script:OutputWidth, $actualWidth - 2)
-$tableWidth = [Math]::Max($tableWidth, $MinTableWidth)
-
-# Fixed column widths for consistent alignment
-# Family: 8 chars, Available: 20 chars, Constrained: rest
-$colFamily = 8
-$colAvailable = 20
-$colConstrained = [Math]::Max(30, $tableWidth - $colFamily - $colAvailable - 4)
-
-$headerFamily = "Family".PadRight($colFamily)
-$headerAvail = "Available".PadRight($colAvailable)
-$headerConst = "Constrained"
-Write-Host "$headerFamily  $headerAvail  $headerConst" -ForegroundColor Cyan
-Write-Host ("-" * $tableWidth) -ForegroundColor Gray
-
-$summaryRowsForExport = @()
-foreach ($family in ($allFamilyStats.Keys | Sort-Object)) {
-    $stats = $allFamilyStats[$family]
-    $regionsOK = [System.Collections.Generic.List[string]]::new()
-    $regionsConstrained = [System.Collections.Generic.List[string]]::new()
-
-    foreach ($regionKey in ($stats.Regions.Keys | Sort-Object)) {
-        $regionKeyStr = Get-SafeString $regionKey
-        $regionStat = $stats.Regions[$regionKey]  # Use original key for lookup
-        if ($regionStat) {
-            if ($regionStat.Capacity -eq 'OK') {
-                $regionsOK.Add($regionKeyStr)
-            }
-            elseif ($regionStat.Capacity -match 'LIMITED|CAPACITY-CONSTRAINED|PARTIAL|RESTRICTED|BLOCKED') {
-                # Shorten status labels for narrow terminals
-                $shortStatus = switch -Regex ($regionStat.Capacity) {
-                    'CAPACITY-CONSTRAINED' { 'CONSTRAINED' }
-                    default { $regionStat.Capacity }
-                }
-                $regionsConstrained.Add("$regionKeyStr ($shortStatus)")
-            }
-        }
-    }
-
-    # Format multi-line output
-    $okLines = @(Format-RegionList -Regions $regionsOK.ToArray() -MaxWidth $colAvailable)
-    $constrainedLines = @(Format-RegionList -Regions $regionsConstrained.ToArray() -MaxWidth $colConstrained)
-
-    # Flatten if nested (PowerShell array quirk)
-    if ($okLines.Count -eq 1 -and $okLines[0] -is [array]) { $okLines = $okLines[0] }
-    if ($constrainedLines.Count -eq 1 -and $constrainedLines[0] -is [array]) { $constrainedLines = $constrainedLines[0] }
-
-    # Determine how many lines we need (max of both columns)
-    $maxLines = [Math]::Max(@($okLines).Count, @($constrainedLines).Count)
-
-    # Determine color for the family name based on availability
-    # Green  = Perfect (All regions OK)
-    # White  = Mixed (Some OK, some constrained - check details)
-    # Yellow = Constrained (No regions strictly OK, all have limitations)
-    # Gray   = Unavailable
-    $familyColor = if ($regionsOK.Count -gt 0 -and $regionsConstrained.Count -eq 0) { 'Green' }
-    elseif ($regionsOK.Count -gt 0 -and $regionsConstrained.Count -gt 0) { 'White' }
-    elseif ($regionsConstrained.Count -gt 0) { 'Yellow' }
-    else { 'Gray' }
-
-    # Iterate through lines to print
-    for ($i = 0; $i -lt $maxLines; $i++) {
-        $familyStr = if ($i -eq 0) { $family } else { '' }
-        $okStr = if ($i -lt @($okLines).Count) { @($okLines)[$i] } else { '' }
-        $constrainedStr = if ($i -lt @($constrainedLines).Count) { @($constrainedLines)[$i] } else { '' }
-
-        # Write each column with appropriate color (use 2 spaces between columns for clarity)
-        Write-Host ("{0,-$colFamily}  " -f $familyStr) -ForegroundColor $familyColor -NoNewline
-        Write-Host ("{0,-$colAvailable}  " -f $okStr) -ForegroundColor Green -NoNewline
-        Write-Host $constrainedStr -ForegroundColor Yellow
-    }
-
-    # Export data
-    $exportRow = [ordered]@{
-        Family     = $family
-        Total_SKUs = ($stats.Regions.Values | Measure-Object -Property Count -Sum).Sum
-        SKUs_OK    = (($stats.Regions.Values | Where-Object { $_.Capacity -eq 'OK' } | Measure-Object -Property Available -Sum).Sum)
-    }
-    foreach ($r in $allRegions) {
-        $regionStat = $stats.Regions[$r]
-        if ($regionStat) {
-            $exportRow["$r`_Status"] = "$($regionStat.Capacity) ($($regionStat.Available)/$($regionStat.Count))"
-        }
-        else {
-            $exportRow["$r`_Status"] = 'N/A'
-        }
-    }
-    $summaryRowsForExport += [pscustomobject]$exportRow
-}
-
-Write-Progress -Activity "Processing Region Data" -Completed
-
-#endregion Detailed Breakdown
-#region Completion
-
-$totalElapsed = (Get-Date) - $scanStartTime
-
-Write-Host "`n" -NoNewline
-Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
-Write-Host "SCAN COMPLETE" -ForegroundColor Green
-Write-Host "Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') | Total time: $([math]::Round($totalElapsed.TotalSeconds, 1)) seconds" -ForegroundColor DarkGray
-Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
-
-#endregion Completion
-#region Export
-
-if ($ExportPath) {
-    $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-
-    # Determine format
-    $useXLSX = ($OutputFormat -eq 'XLSX') -or ($OutputFormat -eq 'Auto' -and (Test-ImportExcelModule))
-
-    Write-Host "`nEXPORTING..." -ForegroundColor Cyan
-
-    if ($useXLSX -and (Test-ImportExcelModule)) {
-        $xlsxFile = Join-Path $ExportPath "AzVMLifecycle-$timestamp.xlsx"
-        try {
-            # Define colors for conditional formatting
-            $greenFill = [System.Drawing.Color]::FromArgb(198, 239, 206)
-            $greenText = [System.Drawing.Color]::FromArgb(0, 97, 0)
-            $yellowFill = [System.Drawing.Color]::FromArgb(255, 235, 156)
-            $yellowText = [System.Drawing.Color]::FromArgb(156, 101, 0)
-            $redFill = [System.Drawing.Color]::FromArgb(255, 199, 206)
-            $redText = [System.Drawing.Color]::FromArgb(156, 0, 6)
-            $headerBlue = [System.Drawing.Color]::FromArgb(0, 120, 212)  # Azure blue
-            $lightGray = [System.Drawing.Color]::FromArgb(242, 242, 242)
-
-            #region Summary Sheet
-            $excel = $summaryRowsForExport | Export-Excel -Path $xlsxFile -WorksheetName "Summary" -AutoSize -FreezeTopRow -PassThru
-
-            $ws = $excel.Workbook.Worksheets["Summary"]
-            $lastRow = $ws.Dimension.End.Row
-            $lastCol = $ws.Dimension.End.Column
-
-            $headerRange = $ws.Cells["A1:$(ConvertTo-ExcelColumnLetter $lastCol)1"]
-            $headerRange.Style.Font.Bold = $true
-            $headerRange.Style.Font.Color.SetColor([System.Drawing.Color]::White)
-            $headerRange.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
-            $headerRange.Style.Fill.BackgroundColor.SetColor($headerBlue)
-            $headerRange.Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
-
-            for ($row = 2; $row -le $lastRow; $row++) {
-                if ($row % 2 -eq 0) {
-                    $rowRange = $ws.Cells["A$row`:$(ConvertTo-ExcelColumnLetter $lastCol)$row"]
-                    $rowRange.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
-                    $rowRange.Style.Fill.BackgroundColor.SetColor($lightGray)
-                }
-            }
-
-            for ($col = 4; $col -le $lastCol; $col++) {
-                $colLetter = ConvertTo-ExcelColumnLetter $col
-                $statusRange = "$colLetter`2:$colLetter$lastRow"
-
-                # OK status - Green
-                Add-ConditionalFormatting -Worksheet $ws -Range $statusRange -RuleType ContainsText -ConditionValue "OK (" -BackgroundColor $greenFill -ForegroundColor $greenText
-
-                # LIMITED status - Yellow/Orange
-                Add-ConditionalFormatting -Worksheet $ws -Range $statusRange -RuleType ContainsText -ConditionValue "LIMITED" -BackgroundColor $yellowFill -ForegroundColor $yellowText
-
-                # CAPACITY-CONSTRAINED - Light orange
-                Add-ConditionalFormatting -Worksheet $ws -Range $statusRange -RuleType ContainsText -ConditionValue "CAPACITY" -BackgroundColor $yellowFill -ForegroundColor $yellowText
-
-                # N/A - Gray
-                Add-ConditionalFormatting -Worksheet $ws -Range $statusRange -RuleType Equal -ConditionValue "N/A" -BackgroundColor $lightGray -ForegroundColor ([System.Drawing.Color]::Gray)
-            }
-
-            $dataRange = $ws.Cells["A1:$(ConvertTo-ExcelColumnLetter $lastCol)$lastRow"]
-            $dataRange.Style.Border.Top.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
-            $dataRange.Style.Border.Bottom.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
-            $dataRange.Style.Border.Left.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
-            $dataRange.Style.Border.Right.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
-
-            $ws.Cells["B2:C$lastRow"].Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
-
-            #region Add Compact Legend to Summary Sheet
-            $legendStartRow = $lastRow + 3  # Leave 2 blank rows
-
-            # Legend title - Capacity Status
-            $ws.Cells["A$legendStartRow"].Value = "CAPACITY STATUS"
-            $ws.Cells["A$legendStartRow`:C$legendStartRow"].Merge = $true
-            $ws.Cells["A$legendStartRow"].Style.Font.Bold = $true
-            $ws.Cells["A$legendStartRow"].Style.Font.Size = 11
-            $ws.Cells["A$legendStartRow"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
-            $ws.Cells["A$legendStartRow"].Style.Fill.BackgroundColor.SetColor($headerBlue)
-            $ws.Cells["A$legendStartRow"].Style.Font.Color.SetColor([System.Drawing.Color]::White)
-
-            # Status codes table
-            $statusItems = @(
-                @{ Status = "OK"; Desc = "Ready to deploy. No restrictions." }
-                @{ Status = "LIMITED"; Desc = "Your subscription can't use this. Request access via support ticket." }
-                @{ Status = "CAPACITY-CONSTRAINED"; Desc = "Azure is low on hardware. Try a different zone or wait." }
-                @{ Status = "PARTIAL"; Desc = "Some zones work, others are blocked. No zone redundancy." }
-                @{ Status = "RESTRICTED"; Desc = "Cannot deploy. Pick a different region or SKU." }
-            )
-
-            $currentRow = $legendStartRow + 1
-            foreach ($item in $statusItems) {
-                $ws.Cells["A$currentRow"].Value = $item.Status
-                $ws.Cells["B$currentRow`:C$currentRow"].Merge = $true
-                $ws.Cells["B$currentRow"].Value = $item.Desc
-                $ws.Cells["A$currentRow"].Style.Font.Bold = $true
-                $ws.Cells["A$currentRow"].Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
-
-                # Apply matching colors to status cell
-                $ws.Cells["A$currentRow"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
-                switch ($item.Status) {
-                    "OK" {
-                        $ws.Cells["A$currentRow"].Style.Fill.BackgroundColor.SetColor($greenFill)
-                        $ws.Cells["A$currentRow"].Style.Font.Color.SetColor($greenText)
-                    }
-                    { $_ -in "LIMITED", "CAPACITY-CONSTRAINED", "PARTIAL" } {
-                        $ws.Cells["A$currentRow"].Style.Fill.BackgroundColor.SetColor($yellowFill)
-                        $ws.Cells["A$currentRow"].Style.Font.Color.SetColor($yellowText)
-                    }
-                    "RESTRICTED" {
-                        $ws.Cells["A$currentRow"].Style.Fill.BackgroundColor.SetColor($redFill)
-                        $ws.Cells["A$currentRow"].Style.Font.Color.SetColor($redText)
-                    }
-                }
-
-                $ws.Cells["A$currentRow`:C$currentRow"].Style.Border.Top.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
-                $ws.Cells["A$currentRow`:C$currentRow"].Style.Border.Bottom.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
-                $ws.Cells["A$currentRow`:C$currentRow"].Style.Border.Left.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
-                $ws.Cells["A$currentRow`:C$currentRow"].Style.Border.Right.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
-
-                $currentRow++
-            }
-
-            # Image Compatibility section (if image checking was used)
-            $currentRow += 2  # Skip a row
-            $ws.Cells["A$currentRow"].Value = "IMAGE COMPATIBILITY (Img Column)"
-            $ws.Cells["A$currentRow`:C$currentRow"].Merge = $true
-            $ws.Cells["A$currentRow"].Style.Font.Bold = $true
-            $ws.Cells["A$currentRow"].Style.Font.Size = 11
-            $ws.Cells["A$currentRow"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
-            $ws.Cells["A$currentRow"].Style.Fill.BackgroundColor.SetColor($headerBlue)
-            $ws.Cells["A$currentRow"].Style.Font.Color.SetColor([System.Drawing.Color]::White)
-
-            $imgItems = @(
-                @{ Symbol = "✓"; Desc = "SKU is compatible with selected image (Gen & Arch match)" }
-                @{ Symbol = "✗"; Desc = "SKU is NOT compatible (wrong generation or architecture)" }
-                @{ Symbol = "[-]"; Desc = "Unable to determine compatibility" }
-            )
-
-            $currentRow++
-            foreach ($item in $imgItems) {
-                $ws.Cells["A$currentRow"].Value = $item.Symbol
-                $ws.Cells["B$currentRow`:C$currentRow"].Merge = $true
-                $ws.Cells["B$currentRow"].Value = $item.Desc
-                $ws.Cells["A$currentRow"].Style.Font.Bold = $true
-                $ws.Cells["A$currentRow"].Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
-                $ws.Cells["A$currentRow"].Style.Font.Size = 12
-
-                $ws.Cells["A$currentRow"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
-                switch ($item.Symbol) {
-                    "✓" {
-                        $ws.Cells["A$currentRow"].Style.Fill.BackgroundColor.SetColor($greenFill)
-                        $ws.Cells["A$currentRow"].Style.Font.Color.SetColor($greenText)
-                    }
-                    "✗" {
-                        $ws.Cells["A$currentRow"].Style.Fill.BackgroundColor.SetColor($redFill)
-                        $ws.Cells["A$currentRow"].Style.Font.Color.SetColor($redText)
-                    }
-                    "[-]" {
-                        $ws.Cells["A$currentRow"].Style.Fill.BackgroundColor.SetColor($lightGray)
-                        $ws.Cells["A$currentRow"].Style.Font.Color.SetColor([System.Drawing.Color]::Gray)
-                    }
-                }
-
-                $ws.Cells["A$currentRow`:C$currentRow"].Style.Border.Top.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
-                $ws.Cells["A$currentRow`:C$currentRow"].Style.Border.Bottom.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
-                $ws.Cells["A$currentRow`:C$currentRow"].Style.Border.Left.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
-                $ws.Cells["A$currentRow`:C$currentRow"].Style.Border.Right.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
-
-                $currentRow++
-            }
-
-            $currentRow += 2
-            $ws.Cells["A$currentRow"].Value = "FORMAT:"
-            $ws.Cells["A$currentRow"].Style.Font.Bold = $true
-            $ws.Cells["B$currentRow"].Value = "STATUS (X/Y) = X SKUs available out of Y total"
-            $currentRow++
-            $ws.Cells["A$currentRow`:C$currentRow"].Merge = $true
-            $ws.Cells["A$currentRow"].Value = "See 'Legend' tab for detailed column descriptions"
-            $ws.Cells["A$currentRow"].Style.Font.Italic = $true
-            $ws.Cells["A$currentRow"].Style.Font.Color.SetColor([System.Drawing.Color]::Gray)
-
-            $ws.Column(1).Width = 22
-            $ws.Column(2).Width = 35
-            $ws.Column(3).Width = 25
-
-            Close-ExcelPackage $excel
-
-            #region Details Sheet
-            $excel = $familyDetails | Export-Excel -Path $xlsxFile -WorksheetName "Details" -AutoSize -FreezeTopRow -Append -PassThru
-
-            $ws = $excel.Workbook.Worksheets["Details"]
-            $lastRow = $ws.Dimension.End.Row
-            $lastCol = $ws.Dimension.End.Column
-
-            $headerRange = $ws.Cells["A1:$(ConvertTo-ExcelColumnLetter $lastCol)1"]
-            $headerRange.Style.Font.Bold = $true
-            $headerRange.Style.Font.Color.SetColor([System.Drawing.Color]::White)
-            $headerRange.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
-            $headerRange.Style.Fill.BackgroundColor.SetColor($headerBlue)
-            $headerRange.Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
-
-            $capacityCol = $null
-            for ($c = 1; $c -le $lastCol; $c++) {
-                if ($ws.Cells[1, $c].Value -eq "Capacity") {
-                    $capacityCol = $c
-                    break
-                }
-            }
-
-            if ($capacityCol) {
-                $colLetter = ConvertTo-ExcelColumnLetter $capacityCol
-                $capacityRange = "$colLetter`2:$colLetter$lastRow"
-
-                # OK - Green
-                Add-ConditionalFormatting -Worksheet $ws -Range $capacityRange -RuleType Equal -ConditionValue "OK" -BackgroundColor $greenFill -ForegroundColor $greenText
-
-                # LIMITED - Yellow
-                Add-ConditionalFormatting -Worksheet $ws -Range $capacityRange -RuleType Equal -ConditionValue "LIMITED" -BackgroundColor $yellowFill -ForegroundColor $yellowText
-
-                # CAPACITY-CONSTRAINED - Light orange
-                Add-ConditionalFormatting -Worksheet $ws -Range $capacityRange -RuleType ContainsText -ConditionValue "CAPACITY" -BackgroundColor $yellowFill -ForegroundColor $yellowText
-
-                # PARTIAL - Yellow (mixed zone availability)
-                Add-ConditionalFormatting -Worksheet $ws -Range $capacityRange -RuleType Equal -ConditionValue "PARTIAL" -BackgroundColor $yellowFill -ForegroundColor $yellowText
-
-                # RESTRICTED - Red
-                Add-ConditionalFormatting -Worksheet $ws -Range $capacityRange -RuleType Equal -ConditionValue "RESTRICTED" -BackgroundColor $redFill -ForegroundColor $redText
-            }
-
-            $dataRange = $ws.Cells["A1:$(ConvertTo-ExcelColumnLetter $lastCol)$lastRow"]
-            $dataRange.Style.Border.Top.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
-            $dataRange.Style.Border.Bottom.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
-            $dataRange.Style.Border.Left.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
-            $dataRange.Style.Border.Right.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
-
-            $ws.Cells["E2:F$lastRow"].Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
-            $ws.Cells["J2:J$lastRow"].Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
-
-            $ws.Cells["A1:$(ConvertTo-ExcelColumnLetter $lastCol)1"].AutoFilter = $true
-
-            Close-ExcelPackage $excel
-
-            #region Legend Sheet
-            $legendData = @(
-                [PSCustomObject]@{ Category = "STATUS FORMAT"; Item = "STATUS (X/Y)"; Description = "X = SKUs with full availability, Y = Total SKUs in family for that region" }
-                [PSCustomObject]@{ Category = "STATUS FORMAT"; Item = "Example: OK (5/8)"; Description = "5 out of 8 SKUs are fully available with OK status" }
-                [PSCustomObject]@{ Category = ""; Item = ""; Description = "" }
-                [PSCustomObject]@{ Category = "CAPACITY STATUS"; Item = "OK"; Description = "Ready to deploy. No restrictions." }
-                [PSCustomObject]@{ Category = "CAPACITY STATUS"; Item = "LIMITED"; Description = "Your subscription can't use this. Request access via support ticket." }
-                [PSCustomObject]@{ Category = "CAPACITY STATUS"; Item = "CAPACITY-CONSTRAINED"; Description = "Azure is low on hardware. Try a different zone or wait." }
-                [PSCustomObject]@{ Category = "CAPACITY STATUS"; Item = "PARTIAL"; Description = "Some zones work, others are blocked. No zone redundancy." }
-                [PSCustomObject]@{ Category = "CAPACITY STATUS"; Item = "RESTRICTED"; Description = "Cannot deploy. Pick a different region or SKU." }
-                [PSCustomObject]@{ Category = "CAPACITY STATUS"; Item = "N/A"; Description = "SKU family not available in this region." }
-                [PSCustomObject]@{ Category = ""; Item = ""; Description = "" }
-                [PSCustomObject]@{ Category = "SUMMARY COLUMNS"; Item = "Family"; Description = "VM family identifier (e.g., Dv5, Ev5, Mv2)" }
-                [PSCustomObject]@{ Category = "SUMMARY COLUMNS"; Item = "Total_SKUs"; Description = "Total number of SKUs scanned across all regions" }
-                [PSCustomObject]@{ Category = "SUMMARY COLUMNS"; Item = "SKUs_OK"; Description = "Number of SKUs with full availability (OK status)" }
-                [PSCustomObject]@{ Category = "SUMMARY COLUMNS"; Item = "<Region>_Status"; Description = "Capacity status for that region with (Available/Total) count" }
-                [PSCustomObject]@{ Category = ""; Item = ""; Description = "" }
-                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "Family"; Description = "VM family identifier" }
-                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "SKU"; Description = "Full SKU name (e.g., Standard_D2s_v5)" }
-                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "Region"; Description = "Azure region code" }
-                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "vCPU"; Description = "Number of virtual CPUs" }
-                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "MemGiB"; Description = "Memory in GiB" }
-                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "Zones"; Description = "Availability zones where SKU is available" }
-                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "Capacity"; Description = "Current capacity status" }
-                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "Restrictions"; Description = "Any restrictions or capacity messages" }
-                [PSCustomObject]@{ Category = "DETAILS COLUMNS"; Item = "QuotaAvail"; Description = "Available vCPU quota for this family (Limit - Current Usage)" }
-                [PSCustomObject]@{ Category = ""; Item = ""; Description = "" }
-                [PSCustomObject]@{ Category = "COLOR CODING"; Item = "Green"; Description = "Ready to deploy. No restrictions." }
-                [PSCustomObject]@{ Category = "COLOR CODING"; Item = "Yellow/Orange"; Description = "Constrained. Check status for what to do next." }
-                [PSCustomObject]@{ Category = "COLOR CODING"; Item = "Red"; Description = "Cannot deploy. Pick a different region or SKU." }
-                [PSCustomObject]@{ Category = "COLOR CODING"; Item = "Gray"; Description = "Not available in this region." }
-            )
-
-            $excel = $legendData | Export-Excel -Path $xlsxFile -WorksheetName "Legend" -AutoSize -Append -PassThru
-
-            $ws = $excel.Workbook.Worksheets["Legend"]
-            $legendLastRow = $ws.Dimension.End.Row
-
-            $ws.Cells["A1:C1"].Style.Font.Bold = $true
-            $ws.Cells["A1:C1"].Style.Font.Color.SetColor([System.Drawing.Color]::White)
-            $ws.Cells["A1:C1"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
-            $ws.Cells["A1:C1"].Style.Fill.BackgroundColor.SetColor($headerBlue)
-
-            $ws.Cells["A2:A$legendLastRow"].Style.Font.Bold = $true
-
-            $ws.Cells["A1:C$legendLastRow"].Style.Border.Top.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
-            $ws.Cells["A1:C$legendLastRow"].Style.Border.Bottom.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
-            $ws.Cells["A1:C$legendLastRow"].Style.Border.Left.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
-            $ws.Cells["A1:C$legendLastRow"].Style.Border.Right.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
-
-            # Apply colors to color coding rows
-            for ($row = 2; $row -le $legendLastRow; $row++) {
-                $itemValue = $ws.Cells["B$row"].Value
-                if ($itemValue -eq "Green") {
-                    $ws.Cells["B$row"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
-                    $ws.Cells["B$row"].Style.Fill.BackgroundColor.SetColor($greenFill)
-                    $ws.Cells["B$row"].Style.Font.Color.SetColor($greenText)
-                }
-                elseif ($itemValue -eq "Yellow/Orange") {
-                    $ws.Cells["B$row"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
-                    $ws.Cells["B$row"].Style.Fill.BackgroundColor.SetColor($yellowFill)
-                    $ws.Cells["B$row"].Style.Font.Color.SetColor($yellowText)
-                }
-                elseif ($itemValue -eq "Red") {
-                    $ws.Cells["B$row"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
-                    $ws.Cells["B$row"].Style.Fill.BackgroundColor.SetColor($redFill)
-                    $ws.Cells["B$row"].Style.Font.Color.SetColor($redText)
-                }
-                elseif ($itemValue -eq "Gray") {
-                    $ws.Cells["B$row"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
-                    $ws.Cells["B$row"].Style.Fill.BackgroundColor.SetColor($lightGray)
-                    $ws.Cells["B$row"].Style.Font.Color.SetColor([System.Drawing.Color]::Gray)
-                }
-                # Style status values in Legend
-                elseif ($itemValue -eq "OK") {
-                    $ws.Cells["B$row"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
-                    $ws.Cells["B$row"].Style.Fill.BackgroundColor.SetColor($greenFill)
-                    $ws.Cells["B$row"].Style.Font.Color.SetColor($greenText)
-                }
-                elseif ($itemValue -eq "LIMITED" -or $itemValue -eq "CAPACITY-CONSTRAINED" -or $itemValue -eq "PARTIAL") {
-                    $ws.Cells["B$row"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
-                    $ws.Cells["B$row"].Style.Fill.BackgroundColor.SetColor($yellowFill)
-                    $ws.Cells["B$row"].Style.Font.Color.SetColor($yellowText)
-                }
-                elseif ($itemValue -eq "RESTRICTED") {
-                    $ws.Cells["B$row"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
-                    $ws.Cells["B$row"].Style.Fill.BackgroundColor.SetColor($redFill)
-                    $ws.Cells["B$row"].Style.Font.Color.SetColor($redText)
-                }
-                elseif ($itemValue -eq "N/A") {
-                    $ws.Cells["B$row"].Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
-                    $ws.Cells["B$row"].Style.Fill.BackgroundColor.SetColor($lightGray)
-                    $ws.Cells["B$row"].Style.Font.Color.SetColor([System.Drawing.Color]::Gray)
-                }
-            }
-
-            $ws.Column(1).Width = 20
-            $ws.Column(2).Width = 25
-            $ws.Column(3).Width = $ExcelDescriptionColumnWidth
-
-            Close-ExcelPackage $excel
-
-            Write-Host "  $($Icons.Check) XLSX: $xlsxFile" -ForegroundColor Green
-            Write-Host "    - Summary sheet with color-coded status" -ForegroundColor DarkGray
-            Write-Host "    - Details sheet with filters and conditional formatting" -ForegroundColor DarkGray
-            Write-Host "    - Legend sheet explaining status codes and format" -ForegroundColor DarkGray
-        }
-        catch {
-            Write-Host "  $($Icons.Warning) XLSX formatting failed: $($_.Exception.Message)" -ForegroundColor Yellow
-            Write-Host "  $($Icons.Warning) Falling back to basic XLSX..." -ForegroundColor Yellow
-            try {
-                $summaryRowsForExport | Export-Excel -Path $xlsxFile -WorksheetName "Summary" -AutoSize -FreezeTopRow
-                $familyDetails | Export-Excel -Path $xlsxFile -WorksheetName "Details" -AutoSize -FreezeTopRow -Append
-                Write-Host "  $($Icons.Check) XLSX (basic): $xlsxFile" -ForegroundColor Green
-            }
-            catch {
-                Write-Host "  $($Icons.Warning) XLSX failed, falling back to CSV" -ForegroundColor Yellow
-                $useXLSX = $false
-            }
-        }
-    }
-
-    if (-not $useXLSX) {
-        $summaryFile = Join-Path $ExportPath "AzVMLifecycle-Summary-$timestamp.csv"
-        $detailFile = Join-Path $ExportPath "AzVMLifecycle-Details-$timestamp.csv"
-
-        $summaryRowsForExport | Export-Csv -Path $summaryFile -NoTypeInformation -Encoding UTF8
-        $familyDetails | Export-Csv -Path $detailFile -NoTypeInformation -Encoding UTF8
-
-        Write-Host "  $($Icons.Check) Summary: $summaryFile" -ForegroundColor Green
-        Write-Host "  $($Icons.Check) Details: $detailFile" -ForegroundColor Green
-    }
-
-    Write-Host "`nExport complete!" -ForegroundColor Green
-
-    # Prompt to open Excel file
-    if ($useXLSX -and (Test-Path $xlsxFile)) {
-        if (-not $NoPrompt) {
-            Write-Host ""
-            $openExcel = Read-Host "Open Excel file now? (Y/n)"
-            if ($openExcel -eq '' -or $openExcel -match '^[Yy]') {
-                Write-Host "Opening $xlsxFile..." -ForegroundColor Cyan
-                Start-Process $xlsxFile
-            }
-        }
-    }
-}
-#endregion Export
 }
 finally {
     [void](Restore-OriginalSubscriptionContext -OriginalSubscriptionId $initialSubscriptionId)

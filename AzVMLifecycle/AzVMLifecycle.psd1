@@ -1,11 +1,11 @@
 ﻿@{
     RootModule        = 'AzVMLifecycle.psm1'
-    ModuleVersion     = '1.14.0'
+    ModuleVersion     = '2.0.0'
     GUID              = 'a7f3b2c1-4d5e-6f78-9a0b-1c2d3e4f5a6b'
     Author            = 'Zachary Luz'
     CompanyName       = 'Community'
     Copyright         = '(c) Zachary Luz. All rights reserved. MIT License.'
-    Description       = 'Scans Azure regions for VM SKU availability, capacity, quota, pricing, and image compatibility.'
+    Description       = 'Azure VM lifecycle management: retirement detection, upgrade path recommendations, compatibility analysis, pricing comparison, and deployment mapping.'
     PowerShellVersion = '7.0'
     RequiredModules   = @(
         @{ ModuleName = 'Az.Accounts'; ModuleVersion = '2.0.0' }
@@ -34,16 +34,11 @@
         # Image
         'Get-ImageRequirements'
         'Test-ImageSkuCompatibility'
-        # Inventory
-        'Get-InventoryReadiness'
-        'Write-InventoryReadinessSummary'
         # Format / Output
-        'Get-StatusIcon'
         'Format-ZoneStatus'
         'Format-RegionList'
         'New-RecommendOutputContract'
         'Write-RecommendOutputContract'
-        'New-ScanOutputContract'
         'Invoke-RecommendMode'
         # Utility
         'Get-SafeString'
@@ -65,10 +60,10 @@
     AliasesToExport    = @()
     PrivateData       = @{
         PSData = @{
-            Tags         = @('Azure', 'VM', 'SKU', 'Capacity', 'Availability', 'Quota', 'Pricing')
+            Tags         = @('Azure', 'VM', 'SKU', 'Lifecycle', 'Retirement', 'Migration', 'Pricing', 'Recommendations')
             LicenseUri   = 'https://github.com/bzlowrance/Get-AzVMLifecycle/blob/main/LICENSE'
             ProjectUri   = 'https://github.com/bzlowrance/Get-AzVMLifecycle'
-            ReleaseNotes = 'Restored inline function fallback for standalone single-file downloads. Module scaffold with 34 extracted functions.'
+            ReleaseNotes = 'v2.0.0: Rebranded to Get-AzVMLifecycle. Simplified to 2-mode design (live ARG scan default, -InputFile for file-based). Removed availability scan, recommend, and inventory modes.'
         }
     }
 }

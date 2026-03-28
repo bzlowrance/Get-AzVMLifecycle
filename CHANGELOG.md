@@ -8,11 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- **Project rebranded from `Get-AzVMAvailability` to `Get-AzVMLifecycle`** — script, module directory, manifest, loader, skill directory, and all internal references renamed to reflect lifecycle management as the core capability. Upstream `Get-AzVMAvailability` remains the availability-focused tool; this fork diverges with lifecycle analysis, retirement tracking, upgrade paths, and deployment mapping.
+- **BREAKING: Project rebranded from `Get-AzVMAvailability` to `Get-AzVMLifecycle`** — script, module directory, manifest, loader, skill directory, and all internal references renamed to reflect lifecycle management as the core capability. Upstream `Get-AzVMAvailability` remains the availability-focused tool; this fork diverges with lifecycle analysis, retirement tracking, upgrade paths, and deployment mapping.
+- **BREAKING: Simplified to 2-mode design** — Live ARG scan is now the default behavior (no flag needed). File-based analysis uses `-InputFile` (renamed from `-LifecycleRecommendations`). The previous `-LifecycleScan` switch is removed since live scan is the default.
+- **BREAKING: Removed `-Recommend` mode** — standalone recommendation mode removed. Use upstream `Get-AzVMAvailability` for ad-hoc SKU alternative lookups.
+- **BREAKING: Removed `-Inventory` / `-InventoryFile` / `-GenerateInventoryTemplate` modes** — inventory BOM validation removed. Use upstream `Get-AzVMAvailability` for capacity/quota pre-checks.
+- **BREAKING: Removed `-EnableDrillDown` and `-FamilyFilter` parameters** — interactive exploration and family-level filtering removed.
+- `-LifecycleRecommendations` renamed to `-InputFile` (alias preserved for backward compatibility)
 - GitHub URLs updated from `ZacharyLuz/Get-AzVMAvailability` to `bzlowrance/Get-AzVMLifecycle`
 - Module renamed from `AzVMAvailability` to `AzVMLifecycle`
 - Export file prefixes changed from `AzVMAvailability-*` to `AzVMLifecycle-*`
 - Copilot skill renamed from `azure-vm-availability` to `azure-vm-lifecycle`
+- Version bumped to 2.0.0
+
+### Removed
+- Default availability scan mode (replaced by lifecycle scan as default)
+- `Get-InventoryReadiness` and `Write-InventoryReadinessSummary` functions
+- `Get-StatusIcon` and `New-ScanOutputContract` functions
+- `AzVMLifecycle/Private/Inventory/` module directory
+- `tests/InventoryFile.Tests.ps1` and `tests/InventorySafety.Tests.ps1`
+- `examples/fleet-bom.csv` and `examples/fleet-bom.json` inventory templates
+- Multi-region capacity matrix console output
+- Interactive drill-down interface
+- ~1,750 lines of dead code (~27% reduction)
 
 ## [1.14.0] - 2026-03-27
 

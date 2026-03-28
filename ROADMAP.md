@@ -1,6 +1,13 @@
 # Roadmap
 
-## Current Release: v1.14.0
+## Current Release: v2.0.0
+
+> **Note:** v2.0.0 rebranded from Get-AzVMAvailability to Get-AzVMLifecycle and
+> simplified to a 2-mode design (live ARG scan + `-InputFile`). Several features
+> referenced in historical versions below (e.g., `-Recommend`, `-FamilyFilter`,
+> `-EnableDrillDown`, `-Inventory`) have been removed. The upstream
+> [Get-AzVMAvailability](https://github.com/ZacharyLuz/Get-AzVMAvailability) retains
+> those capabilities.
 
 See [CHANGELOG.md](CHANGELOG.md) for full version history.
 

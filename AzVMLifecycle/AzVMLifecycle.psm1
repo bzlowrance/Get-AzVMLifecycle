@@ -9,7 +9,6 @@ $privateDirs = @(
     'SKU'       # Depends on Utility (Get-SafeString used by some)
     'Azure'     # Depends on Utility (Invoke-WithRetry used by API functions)
     'Image'     # Depends on SKU
-    'Inventory'   # Depends on SKU, Utility
     'Format'    # Depends on SKU, Utility, Azure
 )
 

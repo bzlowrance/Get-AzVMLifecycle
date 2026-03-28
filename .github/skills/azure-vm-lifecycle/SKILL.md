@@ -1,31 +1,29 @@
 ---
 name: azure-vm-lifecycle
-description: "Scan Azure regions for real-time VM SKU availability, capacity status, quota, pricing, and image compatibility using GET-AZVMLIFECYCLE. USE FOR: where can I deploy VMs, check VM capacity, GPU availability, find available regions, VM SKU restricted, capacity constrained, find alternative SKU, recommend replacement VM, compare regions for VMs, DR region planning, check zone availability, is this SKU available, scan regions. DO NOT USE FOR: general VM size recommendations without Azure login (use azure-compute), quota management via CLI (use azure-quotas), deploying VMs (use azure-prepare)."
+description: "Azure VM lifecycle management — detect retiring SKUs, get upgrade recommendations, and plan migrations using GET-AZVMLIFECYCLE. USE FOR: which VMs are retiring, lifecycle risks, SKU retirement dates, upgrade recommendations, migration planning, compatibility-validated replacements, fleet modernization, old-gen SKU detection, VM lifecycle scan, analyze VM export. DO NOT USE FOR: general VM size recommendations without Azure login (use azure-compute), quota management via CLI (use azure-quotas), deploying VMs (use azure-prepare), raw availability scanning (use upstream Get-AzVMAvailability)."
 license: MIT
 metadata:
-  author: Zachary Luz
-  version: "1.1.0"  # Skill version (independent of script version 1.11.0)
+  author: Barry Lowrance
+  version: "2.0.0"
 ---
 
-# Azure VM Availability — Live Capacity Scanner
+# Azure VM Lifecycle Management
 
 > **AUTHORITATIVE GUIDANCE** — This skill teaches you when and how to invoke
-> the `GET-AZVMLIFECYCLE.ps1` script via terminal for real-time Azure VM
-> capacity scanning. The script is the execution engine; this skill is the
-> routing layer.
+> the `GET-AZVMLIFECYCLE.ps1` script via terminal for Azure VM lifecycle
+> analysis. The script is the execution engine; this skill is the routing layer.
 
 ## When to Use This Skill
 
 Invoke this skill when the user wants to:
-- Check **real-time** VM SKU availability across Azure regions
-- Find which regions have capacity for a specific VM family or SKU
-- Discover GPU/HPC SKU availability (NC, ND, NV series are often constrained)
-- Find **alternative SKUs** when a target VM is capacity-constrained or restricted
-- Plan **disaster recovery** by comparing capacity across region pairs
-- Verify **image compatibility** (Gen1/Gen2, x64/ARM64) before deployment
-- See **pricing** alongside availability (retail or negotiated EA/MCA/CSP)
-- Export availability data to CSV/XLSX for reporting
-- Troubleshoot why a VM deployment is failing (restricted, quota exceeded)
+- Detect **retiring or deprecated** VM SKUs in their fleet
+- Get **upgrade recommendations** with compatibility validation
+- Analyze a **CSV/XLSX file** of VMs for lifecycle risks
+- Run a **live scan** of deployed VMs via Azure Resource Graph
+- Check **pricing comparison** between current and recommended SKUs
+- Identify **old-generation** SKUs that should be modernized
+- Generate **XLSX reports** showing fleet lifecycle risk
+- Validate that replacement SKUs meet **compatibility requirements**
 
 ### When NOT to Use This Skill
 
@@ -34,7 +32,7 @@ Invoke this skill when the user wants to:
 | General VM size recommendation (no Azure login needed) | `azure-compute` |
 | Check/manage quota limits via `az quota` CLI | `azure-quotas` |
 | Deploy VMs or infrastructure | `azure-prepare` → `azure-validate` → `azure-deploy` |
-| Diagnose portal-vs-programmatic quota mismatch | `azure-quota-subfamily-mismatch-diagnosis` |
+| Raw SKU availability scanning across regions | Upstream `Get-AzVMAvailability` |
 | Verify local script is up to date | `AzVMLifecycle-release-verification-workflow` |
 
 ---
@@ -46,20 +44,18 @@ Before running, verify these requirements. **Stop and help the user fix any miss
 ### 1. Script Must Be On The Machine
 
 ```powershell
-# Check if the script exists in common locations
 $paths = @(
-    "$env:USERPROFILE\GET-AZVMLIFECYCLE\GET-AZVMLIFECYCLE.ps1",
-    "$env:USERPROFILE\source\repos\GET-AZVMLIFECYCLE\GET-AZVMLIFECYCLE.ps1",
-    "$env:USERPROFILE\OneDrive - Microsoft\GET-AZVMLIFECYCLE\GET-AZVMLIFECYCLE.ps1"
+    "$env:USERPROFILE\Get-AzVMLifecycle\GET-AZVMLIFECYCLE.ps1",
+    "$env:USERPROFILE\source\repos\Get-AzVMLifecycle\GET-AZVMLIFECYCLE.ps1"
 )
 $found = $paths | Where-Object { Test-Path $_ } | Select-Object -First 1
 if ($found) { Write-Host "Found: $found" } else { Write-Host "NOT FOUND" }
 ```
 
-**If not found**, tell the user:
+**If not found:**
 ```powershell
 git clone https://github.com/bzlowrance/Get-AzVMLifecycle.git
-cd GET-AZVMLIFECYCLE
+cd Get-AzVMLifecycle
 ```
 
 ### 2. PowerShell 7+ Required
@@ -68,13 +64,12 @@ cd GET-AZVMLIFECYCLE
 $PSVersionTable.PSVersion  # Must be 7.0+
 ```
 
-If running in Windows PowerShell 5.1, prefix commands with `pwsh -File`.
-
 ### 3. Azure Modules & Login
 
 ```powershell
-Get-Module Az.Compute -ListAvailable   # Must be installed
-Get-AzContext                          # Must have active login
+Get-Module Az.Compute -ListAvailable
+Get-Module Az.ResourceGraph -ListAvailable
+Get-AzContext  # Must have active login
 ```
 
 If not logged in: `Connect-AzAccount`
@@ -89,171 +84,113 @@ User request
     ├─ "What VM should I use for X workload?"
     │   └─ Use azure-compute skill (no login needed)
     │
-    ├─ "Check my quota limits"
-    │   └─ Use azure-quotas skill (az quota CLI)
+    ├─ "Which of my VMs are retiring?"
+    │   └─ THIS SKILL → Default live scan
     │
-    ├─ "Where can I deploy Standard_D4s_v5?"
-    │   └─ THIS SKILL → Scan mode
+    ├─ "Analyze this VM export for lifecycle risks"
+    │   └─ THIS SKILL → -InputFile mode
     │
-    ├─ "Is GPU capacity available in eastus?"
-    │   └─ THIS SKILL → Scan mode with FamilyFilter
+    ├─ "What should I replace Standard_D4s_v3 with?"
+    │   └─ THIS SKILL → -InputFile with CSV containing the SKU
     │
-    ├─ "E64pds_v6 is constrained, what else can I use?"
-    │   └─ THIS SKILL → Recommend mode
+    ├─ "Check lifecycle status of my production VMs"
+    │   └─ THIS SKILL → Default scan with -Tag @{Environment='prod'}
     │
-    ├─ "Can my VM fleet deploy in eastus?" / "Check this BOM"
-    │   └─ THIS SKILL → Fleet mode (-FleetFile or -Fleet)
-    │
-    ├─ "Compare eastus vs westus2 for D-series"
-    │   └─ THIS SKILL → Scan mode, multi-region
-    │
-    └─ "Check if my image works with this SKU"
-        └─ THIS SKILL → Scan mode with ImageURN
+    └─ "Generate a migration report for stakeholders"
+        └─ THIS SKILL → Default scan with -AutoExport -OutputFormat XLSX
 ```
 
 ---
 
 ## Core Workflows
 
-### Workflow 1: Region Capacity Scan
+### Workflow 1: Live Lifecycle Scan (Default)
 
-**Scenario:** Check which regions have capacity for specific VM SKUs or families.
+**Scenario:** Detect retiring SKUs across deployed VMs.
 
 ```powershell
-# Basic scan — specific SKU across regions
-.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Region "eastus","westus2","centralus" -SkuFilter "Standard_D4s_v5" -JsonOutput
+# Scan current subscription
+.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -JsonOutput
 
-# Scan a VM family across US regions
-.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -RegionPreset USMajor -FamilyFilter "D","E" -JsonOutput
+# Scan specific subscriptions
+.\GET-AZVMLIFECYCLE.ps1 -SubscriptionId "sub-id-1","sub-id-2" -NoPrompt -JsonOutput
 
-# GPU availability scan
-.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Region "eastus","southcentralus","westus2" -FamilyFilter "NC","ND","NV" -JsonOutput
+# Scan a management group
+.\GET-AZVMLIFECYCLE.ps1 -ManagementGroup "mg-production" -NoPrompt -JsonOutput
+
+# Filter by tag
+.\GET-AZVMLIFECYCLE.ps1 -Tag @{Environment='prod'} -NoPrompt -JsonOutput
 ```
 
 **Always use `-NoPrompt -JsonOutput`** when running from Copilot to get structured output.
 
-### Workflow 2: Find Alternative SKUs (Recommend Mode)
+### Workflow 2: File-Based Analysis
 
-**Scenario:** A target SKU is constrained or restricted — find similar available alternatives.
+**Scenario:** Analyze a CSV, JSON, or Azure portal XLSX export.
 
 ```powershell
-# Find alternatives for a constrained SKU
-.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Recommend "Standard_E64pds_v6" -Region "eastus","westus2","centralus" -JsonOutput
+# From a CSV file
+.\GET-AZVMLIFECYCLE.ps1 -InputFile .\my-vms.csv -Region "eastus" -NoPrompt -JsonOutput
 
-# Show more results with lower threshold
-.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Recommend "Standard_NC24ads_A100_v4" -RegionPreset USMajor -TopN 10 -MinScore 0 -JsonOutput
+# From an Azure portal VM export (XLSX)
+.\GET-AZVMLIFECYCLE.ps1 -InputFile .\AzureVirtualMachines.xlsx -NoPrompt -JsonOutput
 
-# Filter by minimum specs
-.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Recommend "Standard_D8s_v5" -Region "eastus" -MinvCPU 8 -MinMemoryGB 32 -JsonOutput
+# Offline analysis (no Azure login for quota checks)
+.\GET-AZVMLIFECYCLE.ps1 -InputFile .\my-vms.csv -Region "eastus" -NoQuota -NoPrompt -JsonOutput
 ```
 
-### Workflow 3: Scan with Pricing
-
-```powershell
-# Auto-detects negotiated EA/MCA/CSP rates, falls back to retail
-.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Region "eastus","westus2" -FamilyFilter "D" -ShowPricing -JsonOutput
+**CSV file format:**
+```csv
+SKU,Region,Qty
+Standard_D4s_v3,eastus,10
+Standard_E8s_v3,westus2,5
+Standard_F4s_v2,eastus,3
 ```
 
-### Workflow 4: Image Compatibility Check
+Column names are flexible: `SKU`/`Size`/`VmSize` for SKU, `Region`/`Location` for region, `Qty`/`Quantity`/`Count` for quantity.
+
+### Workflow 3: Pricing Comparison
 
 ```powershell
-# Verify ARM64 image compatibility
-.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Region "eastus" -SkuFilter "Standard_D*ps*" -ImageURN "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-arm64:latest" -JsonOutput
+# PAYG pricing
+.\GET-AZVMLIFECYCLE.ps1 -ShowPricing -NoPrompt -JsonOutput
+
+# Full pricing with RI/SP savings
+.\GET-AZVMLIFECYCLE.ps1 -ShowPricing -RateOptimization -NoPrompt -JsonOutput
+```
+
+### Workflow 4: Image Compatibility
+
+```powershell
+# Check ARM64 image compatibility
+.\GET-AZVMLIFECYCLE.ps1 -InputFile .\my-vms.csv -ImageURN "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-arm64:latest" -NoPrompt -JsonOutput
 
 # Check Gen2 Windows image
-.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Region "eastus","westus2" -ImageURN "MicrosoftWindowsServer:WindowsServer:2022-datacenter-g2:latest" -JsonOutput
+.\GET-AZVMLIFECYCLE.ps1 -ImageURN "MicrosoftWindowsServer:WindowsServer:2022-datacenter-g2:latest" -NoPrompt -JsonOutput
 ```
 
-### Workflow 5: DR Region Planning
+### Workflow 5: Placement Scores
 
 ```powershell
-# Azure Site Recovery pair
-.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -RegionPreset ASR-EastWest -FamilyFilter "D","E" -ShowPricing -JsonOutput
+# Show allocation likelihood scores
+.\GET-AZVMLIFECYCLE.ps1 -ShowPlacement -NoPrompt -JsonOutput
 
-# Custom DR pair
-.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Region "eastus","westus2" -ShowPricing -JsonOutput
-```
-
-### Workflow 6: Placement Scores and Spot Pricing
-
-**Scenario:** See allocation likelihood and spot pricing alongside recommendations.
-
-```powershell
-# Recommend with placement scores (shows High/Medium/Low allocation likelihood)
-.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Recommend "Standard_D4s_v5" -Region "eastus","westus2" -ShowPlacement -JsonOutput
-
-# Full enrichment: pricing + placement + spot pricing
-.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Recommend "Standard_D4s_v5" -Region "eastus" -ShowPricing -ShowPlacement -ShowSpot -JsonOutput
-
-# Placement scores in filtered scan mode (max 5 SKUs)
-.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Region "eastus" -SkuFilter "Standard_D4s_v5" -ShowPlacement -JsonOutput
+# With pricing enrichment
+.\GET-AZVMLIFECYCLE.ps1 -ShowPricing -ShowPlacement -NoPrompt -JsonOutput
 ```
 
 **Notes:**
-- `-ShowPlacement` requires "Compute Recommendations Role" RBAC -- fails gracefully with a warning if missing
-- `-ShowSpot` only adds value when `-ShowPricing` is also set (spot dollar values need pricing context)
-- Placement API accepts max 5 SKUs x 8 regions per call -- larger sets are truncated with a verbose warning
+- `-ShowPlacement` requires "Compute Recommendations Role" RBAC — fails gracefully if missing
+- Placement API accepts max 5 SKUs x 8 regions per call
 
-### Workflow 7: Fleet Readiness (BOM Validation)
-
-**Scenario:** Validate that an entire VM fleet (bill of materials) can be deployed — checks capacity and quota for every SKU in the BOM simultaneously.
+### Workflow 6: Export for Reporting
 
 ```powershell
-# Step 1: Generate template files (no Azure login needed)
-.\GET-AZVMLIFECYCLE.ps1 -GenerateFleetTemplate
-# → Creates fleet-template.csv and fleet-template.json in current directory
-# → Edit with your actual SKUs and quantities
+# XLSX with deployment maps
+.\GET-AZVMLIFECYCLE.ps1 -SubMap -RGMap -AutoExport -OutputFormat XLSX -NoPrompt
 
-# Step 2: Run the scan with your fleet file
-.\GET-AZVMLIFECYCLE.ps1 -FleetFile .\fleet-template.csv -Region "eastus" -NoPrompt
-
-# Alternative: CSV file (export from Excel, paste from table)
-.\GET-AZVMLIFECYCLE.ps1 -FleetFile .\fleet.csv -Region "eastus" -NoPrompt
-
-# Alternative: Inline hashtable (for scripting/automation)
-.\GET-AZVMLIFECYCLE.ps1 -Fleet @{'Standard_D2s_v5'=17; 'Standard_D4s_v5'=4; 'Standard_D8s_v5'=5} -Region "eastus" -NoPrompt
-
-# Alternative: JSON file input (for automation pipelines)
-.\GET-AZVMLIFECYCLE.ps1 -FleetFile .\fleet.json -Region "eastus" -NoPrompt -JsonOutput
-```
-
-**CSV file format** (save as `fleet.csv`):
-```csv
-SKU,Qty
-Standard_D2s_v5,17
-Standard_D4s_v5,4
-Standard_D8s_v5,5
-Standard_D16ds_v5,1
-Standard_D16ls_v6,1
-```
-
-**JSON file format** (save as `fleet.json`):
-```json
-[
-  { "SKU": "Standard_D2s_v5", "Qty": 17 },
-  { "SKU": "Standard_D4s_v5", "Qty": 4 },
-  { "SKU": "Standard_D8s_v5", "Qty": 5 },
-  { "SKU": "Standard_D16ds_v5", "Qty": 1 },
-  { "SKU": "Standard_D16ls_v6", "Qty": 1 }
-]
-```
-
-**Column name flexibility:** The parser accepts `SKU`, `Name`, or `VmSize` for the SKU column, and `Qty`, `Quantity`, or `Count` for the quantity column. Duplicate SKU rows are summed automatically.
-
-**Output:** Color-coded per-SKU capacity table + per-family quota pass/fail (Used/Available/Limit) + overall PASS/FAIL verdict.
-
-**When to route here vs Recommend mode:**
-- User has a specific BOM (list of SKUs + quantities) → **Fleet mode**
-- User has ONE constrained SKU and wants alternatives → **Recommend mode**
-
-### Workflow 8: Export for Reporting
-
-```powershell
-# Auto-export to XLSX (styled, color-coded)
-.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -RegionPreset USMajor -AutoExport -OutputFormat XLSX
-
-# Export to specific path
-.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Region "eastus","westus2" -ExportPath "C:\Reports" -AutoExport
+# Full enrichment: pricing + maps + export
+.\GET-AZVMLIFECYCLE.ps1 -ShowPricing -RateOptimization -SubMap -RGMap -AutoExport -NoPrompt
 ```
 
 ---
@@ -262,25 +199,30 @@ Standard_D16ls_v6,1
 
 | Parameter | Type | Purpose |
 |-----------|------|---------|
-| `-Region` | String[] | Azure region codes (e.g., "eastus","westus2") |
-| `-RegionPreset` | String | Predefined set: USEastWest, USCentral, USMajor, Europe, AsiaPacific, Global, USGov, China, ASR-EastWest, ASR-CentralUS |
-| `-FamilyFilter` | String[] | Filter to families: D, E, F, M, NC, ND, NV, etc. |
-| `-SkuFilter` | String[] | Specific SKUs with wildcards: "Standard_D*_v5" |
-| `-Recommend` | String | Target SKU for alternative finding |
-| `-ShowPricing` | Switch | Include hourly/monthly pricing |
-| `-ImageURN` | String | Check image compatibility (Publisher:Offer:Sku:Version) |
+| `-InputFile` | String | CSV, JSON, or XLSX file with VM SKUs for analysis |
+| `-Region` | String[] | Azure region codes. Auto-detected in live scan mode |
+| `-RegionPreset` | String | Predefined set: USEastWest, USMajor, Europe, etc. |
+| `-SubscriptionId` | String[] | Target subscriptions for live scan |
+| `-ManagementGroup` | String[] | Management group scope for live scan |
+| `-ResourceGroup` | String[] | Resource group filter for live scan |
+| `-Tag` | Hashtable | Tag filter for live scan: `@{Env='prod'}` |
+| `-SkuFilter` | String[] | Filter to specific SKUs with wildcards |
+| `-ShowPricing` | Switch | Include pricing comparison |
+| `-RateOptimization` | Switch | Add RI/SP savings columns (requires `-ShowPricing`) |
+| `-ShowPlacement` | Switch | Show allocation likelihood scores |
+| `-ShowSpot` | Switch | Include Spot VM pricing |
+| `-ImageURN` | String | Check image compatibility |
+| `-TopN` | Int | Recommendations per SKU (default 5, max 25) |
+| `-MinScore` | Int | Min similarity score 0-100 (default 50, use 0 for all) |
+| `-MinvCPU` | Int | Min vCPU filter for recommendations |
+| `-MinMemoryGB` | Int | Min memory filter for recommendations |
+| `-SubMap` | Switch | Add Subscription Map sheet to XLSX |
+| `-RGMap` | Switch | Add Resource Group Map sheet to XLSX |
+| `-NoQuota` | Switch | Skip quota checks (offline analysis) |
 | `-NoPrompt` | Switch | **Always use from Copilot** — skip interactive prompts |
 | `-JsonOutput` | Switch | **Always use from Copilot** — structured JSON output |
 | `-AutoExport` | Switch | Export without prompting |
 | `-OutputFormat` | String | Auto, CSV, or XLSX |
-| `-TopN` | Int | Recommendations to return (default 5, max 25) |
-| `-MinScore` | Int | Min similarity score 0-100 (default 50, use 0 for all) |
-| `-MinvCPU` | Int | Min vCPU filter for recommendations |
-| `-MinMemoryGB` | Int | Min memory filter for recommendations |
-| `-ShowPlacement` | Switch | Show allocation likelihood scores (High/Medium/Low) per SKU |
-| `-ShowSpot` | Switch | Include Spot VM pricing (requires `-ShowPricing`) |
-| `-DesiredCount` | Int | VM count for placement score API (default 1) |
-| `-AllowMixedArch` | Switch | Include x64+ARM64 mix in recommendations |
 
 ---
 
@@ -299,106 +241,63 @@ Standard_D16ls_v6,1
 | ASR-EastWest | eastus, westus2 | DR pair |
 | ASR-CentralUS | centralus, eastus2 | DR pair |
 
-Max 5 regions per scan for performance.
-
 ---
 
 ## JSON Output Schema
 
-### Scan Mode
+### Lifecycle Analysis
 
 ```json
 {
   "schemaVersion": "1.0",
-  "mode": "scan",
+  "mode": "lifecycle",
   "generatedAt": "ISO8601",
   "subscriptions": ["sub-id"],
   "regions": ["eastus", "westus2"],
   "summary": {
-    "familyCount": 20,
-    "detailRowCount": 150,
-    "regionErrorCount": 0
+    "totalSkus": 5,
+    "totalVMs": 35,
+    "highRisk": 2,
+    "mediumRisk": 1,
+    "lowRisk": 2
   },
-  "families": [
+  "entries": [
     {
-      "family": "D",
-      "totalSkusDiscovered": 25,
-      "availableRegionCount": 3,
-      "constrainedRegionCount": 0,
-      "largestSku": "Standard_D96s_v5"
-    }
-  ],
-  "regionErrors": []
-}
-```
-
-### Recommend Mode
-
-```json
-{
-  "schemaVersion": "1.0",
-  "mode": "recommend",
-  "generatedAt": "ISO8601",
-  "minScore": 50,
-  "topN": 5,
-  "pricingEnabled": false,
-  "placementEnabled": false,
-  "spotPricingEnabled": false,
-  "target": {
-    "Name": "Standard_E64pds_v6",
-    "vCPU": 64,
-    "MemoryGB": 512,
-    "Family": "E",
-    "Generation": "V1,V2",
-    "Architecture": "x64",
-    "PremiumIO": true,
-    "Processor": "ARM",
-    "DiskCode": "NV+T"
-  },
-  "targetAvailability": [
-    { "Region": "eastus", "Status": "LIMITED", "ZonesOK": 0 }
-  ],
-  "recommendations": [
-    {
-      "rank": 1,
-      "sku": "Standard_E64ds_v5",
+      "sku": "Standard_D4s_v3",
       "region": "eastus",
-      "vCPU": 64,
-      "memGiB": 512,
-      "family": "E",
-      "score": 93,
-      "capacity": "OK",
-      "allocScore": "N/A",
-      "zonesOK": 3,
-      "priceHr": null,
-      "priceMo": null,
-      "spotPriceHr": null,
-      "spotPriceMo": null
+      "qty": 10,
+      "riskLevel": "Medium",
+      "riskReasons": ["Old generation (v3)"],
+      "recommendations": [
+        {
+          "rank": 1,
+          "type": "Upgrade: Drop-in",
+          "sku": "Standard_D4s_v5",
+          "vCPU": 4,
+          "memGiB": 16,
+          "score": 95,
+          "capacity": "OK",
+          "priceHr": 0.192,
+          "details": "Same family, SCSI disk — safest migration from Dv3"
+        }
+      ]
     }
-  ],
-  "warnings": ["Mixed CPU vendors (Intel, ARM)"],
-  "belowMinSpec": []
+  ]
 }
 ```
 
-> **Note:** The examples above show key fields for brevity. In actual output,
-> each `recommendations` object also includes `purpose`, `gen`, `arch`, `cpu`,
-> `disk`, `tempDiskGB`, and `accelNet`. The `target` object also includes
-> `TempDiskGB` and `AccelNet`. Treat the schema as additive -- new fields may
-> appear in future versions, but existing fields will not be removed without
-> a `schemaVersion` change.
+> **Note:** The schema is additive — new fields may appear in future versions,
+> but existing fields will not be removed without a `schemaVersion` change.
 
 ---
 
-## Capacity Status Meanings
+## Risk Level Meanings
 
-| Status | Meaning | Action |
-|--------|---------|--------|
-| OK | Ready to deploy, no restrictions | Proceed |
-| LIMITED | Subscription can't use this SKU | Request access via support ticket |
-| CAPACITY-CONSTRAINED | Azure low on hardware | Try different zone or wait |
-| PARTIAL | Some zones work, others blocked | No zone redundancy available |
-| RESTRICTED | Cannot deploy | Pick different region or SKU |
+| Risk | Meaning | Action |
+|------|---------|--------|
+| High | Retired/retiring SKU, no capacity, or no alternatives | Migrate immediately |
+| Medium | Old generation (v3 or below) | Plan migration to current gen |
+| Low | Current generation, good capacity | No action needed |
 
 ---
 
@@ -406,10 +305,10 @@ Max 5 regions per scan for performance.
 
 When presenting results to the user:
 
-1. **Scan mode**: Summarize which families/SKUs are available (OK) vs constrained, highlight best regions
-2. **Recommend mode**: Present the top alternatives ranked by similarity score, note any fleet warnings (mixed CPU vendors, mixed disk types)
-3. **Always mention**: quota availability, zone coverage, and pricing if shown
-4. **If no OK results**: Suggest expanding regions, lowering MinScore, or trying different families
+1. **Live scan**: Summarize total VM count at each risk level, highlight High-risk SKUs first
+2. **File analysis**: Note any SKUs with no compatible replacements, suggest expanding regions
+3. **Always mention**: risk level, upgrade path type (Drop-in vs. Future-proof), quota availability
+4. **Pricing**: Show cost delta between current and recommended SKUs if pricing is enabled
 
 ---
 

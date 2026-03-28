@@ -67,14 +67,14 @@ Use this when Windows marks the script as downloaded from the internet.
 Prerequisite: signed in to Azure (`Connect-AzAccount`) and required modules installed.
 
 ```powershell
-pwsh -File .\GET-AZVMLIFECYCLE.ps1 -NoPrompt -Region eastus -FamilyFilter D -TopN 3
+pwsh -File .\GET-AZVMLIFECYCLE.ps1 -NoPrompt -TopN 3
 ```
 
 Expected:
 
 - Script starts without `AzureEndpoints` startup property errors.
 - No PowerShell 5.1 `ForEach-Object -Parallel` incompatibility path, because the host is PowerShell 7+.
-- Basic scan output is produced.
+- Lifecycle scan output is produced with risk levels and recommendations.
 
 ## Troubleshooting Signals
 
