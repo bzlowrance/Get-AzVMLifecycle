@@ -99,8 +99,8 @@ docs/Gemini*
 # Archived internal process artifacts (remediation, proposals, session handoffs)
 docs/archive/
 
-# AI toolkit / agent skills installed locally
-.github/skills/
+# AI toolkit / agent skills installed locally (not .github/skills/ — those are project skills)
+# .github/skills/ is intentionally tracked
 
 # Browser automation artifacts
 .playwright-mcp/
