@@ -9,7 +9,7 @@
 
 ## Key Files & Directories
 
-- `GET-AZVMLIFECYCLE.ps1`: Main script for multi-region, multi-SKU Azure VM capacity and quota scanning.
+- `Get-AzVMLifecycle.ps1`: Main script for multi-region, multi-SKU Azure VM capacity and quota scanning.
 - `dev/`: Experimental and advanced scripts, including:
   - `Azure-VM-Capacity-Planner.ps1`
   - `Azure-SKU-Scanner-Fast.ps1`
@@ -23,7 +23,7 @@
 
 - **Run Main Script:**
   ```powershell
-  .\GET-AZVMLIFECYCLE.ps1
+  .\Get-AzVMLifecycle.ps1
   ```
 - **Run Tests:**
   ```powershell
@@ -207,7 +207,7 @@ AzVMLifecycle/
 ├── AzVMLifecycle.psd1
 ├── AzVMLifecycle.psm1
 ├── Public/
-│   ├── GET-AZVMLIFECYCLE.ps1        # scan (emits objects)
+│   ├── Get-AzVMLifecycle.ps1        # scan (emits objects)
 │   ├── Get-AzVMRecommendation.ps1      # current Invoke-RecommendMode
 │   └── Export-AzVMLifecycleReport.ps1
 ├── Private/
@@ -217,13 +217,13 @@ AzVMLifecycle/
 │   ├── Inventory/   (readiness, summary)
 │   ├── Format/  (icons, zone status, recommend output)
 │   └── Utility/ (SafeString, GeoGroup, SubscriptionContext)
-└── GET-AZVMLIFECYCLE.ps1            # thin backward-compat wrapper
+└── Get-AzVMLifecycle.ps1            # thin backward-compat wrapper
 ```
 
 ### Cmdlet Naming Convention
 Az module convention uses `AzVM` (capital VM), not `AzVm`. Always follow:
-`GET-AZVMLIFECYCLE`, `Get-AzVMRecommendation`, `Export-AzVMLifecycleReport`
-**Not:** `GET-AZVMLIFECYCLE`, `Get-AzVmRecommendation` (Copilot gets this wrong).
+`Get-AzVMLifecycle`, `Get-AzVMRecommendation`, `Export-AzVMLifecycleReport`
+**Not:** `Get-AzVMLifecycle`, `Get-AzVmRecommendation` (Copilot gets this wrong).
 
 ### Internal Process Artifacts
 `docs/REMEDIATION-PROGRAM.md` and `docs/REMEDIATION-TODO.md` are internal

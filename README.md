@@ -1,4 +1,4 @@
-# GET-AZVMLIFECYCLE
+# Get-AzVMLifecycle
 
 Azure VM lifecycle management — detect retiring SKUs, get upgrade recommendations, and plan migrations.
 
@@ -18,7 +18,7 @@ The author is a Microsoft employee; however, this is a **personal open-source pr
 
 ## Overview
 
-GET-AZVMLIFECYCLE analyzes your deployed Azure VMs for lifecycle risks and recommends migration paths. It identifies retiring, deprecated, and old-generation SKUs, then provides compatibility-validated replacement recommendations with capacity, quota, and pricing analysis.
+Get-AzVMLifecycle analyzes your deployed Azure VMs for lifecycle risks and recommends migration paths. It identifies retiring, deprecated, and old-generation SKUs, then provides compatibility-validated replacement recommendations with capacity, quota, and pricing analysis.
 
 **Two modes of operation:**
 
@@ -95,26 +95,68 @@ Install-Module -Name ImportExcel -Scope CurrentUser
 
 ```powershell
 # Live scan — pull VMs from Azure and analyze lifecycle risks
-.\GET-AZVMLIFECYCLE.ps1 -NoPrompt
+.\Get-AzVMLifecycle.ps1
 
 # Scan a specific subscription
-.\GET-AZVMLIFECYCLE.ps1 -SubscriptionId "xxxx-xxxx" -NoPrompt
+.\Get-AzVMLifecycle.ps1 -SubscriptionId "xxxx-xxxx"
 
 # Scan a management group with tag filter
-.\GET-AZVMLIFECYCLE.ps1 -ManagementGroup "Production" -Tag @{Environment='prod'} -NoPrompt
+.\Get-AzVMLifecycle.ps1 -ManagementGroup "Production" -Tag @{Environment='prod'}
 
 # File-based analysis from a CSV
-.\GET-AZVMLIFECYCLE.ps1 -InputFile .\my-vms.csv -Region "eastus" -NoPrompt
+.\Get-AzVMLifecycle.ps1 -InputFile .\my-vms.csv -Region "eastus"
 
 # Analyze an Azure portal VM export with full pricing
-.\GET-AZVMLIFECYCLE.ps1 -InputFile .\AzureVirtualMachines.xlsx -ShowPricing -RateOptimization -NoPrompt
+.\Get-AzVMLifecycle.ps1 -InputFile .\AzureVirtualMachines.xlsx -ShowPricing -RateOptimization
 
 # Live scan with deployment maps and auto-export
-.\GET-AZVMLIFECYCLE.ps1 -SubMap -RGMap -AutoExport -NoPrompt
+.\Get-AzVMLifecycle.ps1 -SubMap -RGMap -AutoExport
 
 # JSON output for automation
-.\GET-AZVMLIFECYCLE.ps1 -JsonOutput -NoPrompt
+.\Get-AzVMLifecycle.ps1 -JsonOutput
+
+# Interactive wizard — guided step-by-step setup
+.\Get-AzVMLifecycle.ps1 -Interactive
 ```
+
+### Interactive Wizard (`-Interactive`)
+
+By default the script runs non-interactively: it uses your current Azure context, auto-detects regions from deployed VMs, and produces output immediately — ideal for automation, CI/CD, and AI agents.
+
+Add `-Interactive` (alias `-Prompt`) to launch a guided wizard that walks you through every option:
+
+```
+Get-AzVMLifecycle v2.0.0
+
+STEP 1: SELECT SUBSCRIPTION(S)
+============================================================
+1. My-Production-Sub
+   xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+2. My-Dev-Sub
+   yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy
+
+Enter number(s) separated by commas (e.g., 1,3) or press Enter for #1:
+
+STEP 2: SELECT REGION(S)
+====================================================================================================
+FAST PATH: Type region codes now to skip the long list (comma/space separated)
+Examples: eastus eastus2 westus3  |  Press Enter to show full menu
+
+Export results to file? (y/N):
+Include estimated pricing? (adds ~5-10 sec) (y/N):
+Show allocation likelihood scores? (High/Medium/Low per SKU) (y/N):
+Include Spot VM pricing alongside regular pricing? (y/N):
+Check SKU compatibility with a specific VM image? (y/N):
+```
+
+**When to use `-Interactive`:**
+
+| Scenario | Why |
+|----------|-----|
+| First-time exploration | Browse subscriptions and regions you haven't used before |
+| Ad-hoc investigation | Quickly toggle pricing, placement, or image checks without memorizing flags |
+| Demo or training | Walk an audience through the tool's capabilities step by step |
+| Customer workshop | Let a customer drive the tool on their own tenant |
 
 ## Parameters
 
@@ -144,7 +186,7 @@ Install-Module -Name ImportExcel -Scope CurrentUser
 | `-AutoExport`           | Switch     | Export without prompting                                                                                                  |
 | `-OutputFormat`         | String     | 'Auto', 'CSV', or 'XLSX'                                                                                                  |
 | `-JsonOutput`           | Switch     | Emit structured JSON for automation                                                                                       |
-| `-NoPrompt`             | Switch     | Skip all interactive prompts                                                                                              |
+| `-Interactive`          | Switch     | Enable interactive wizard prompts for subscription, region, and feature selection. Non-interactive by default              |
 | `-CompactOutput`        | Switch     | Use compact output for narrow terminals                                                                                   |
 | `-UseAsciiIcons`        | Switch     | Force ASCII instead of Unicode icons                                                                                      |
 | `-Environment`          | String     | Azure cloud (default: auto-detect). Options: AzureCloud, AzureUSGovernment, AzureChinaCloud, AzureGermanCloud             |
@@ -160,25 +202,25 @@ Install-Module -Name ImportExcel -Scope CurrentUser
 
 ```powershell
 # Scan current subscription
-.\GET-AZVMLIFECYCLE.ps1 -NoPrompt
+.\Get-AzVMLifecycle.ps1
 
 # Scan specific subscriptions
-.\GET-AZVMLIFECYCLE.ps1 -SubscriptionId "sub-id-1","sub-id-2" -NoPrompt
+.\Get-AzVMLifecycle.ps1 -SubscriptionId "sub-id-1","sub-id-2"
 
 # Scan an entire management group (all child subscriptions)
-.\GET-AZVMLIFECYCLE.ps1 -ManagementGroup "mg-production" -NoPrompt
+.\Get-AzVMLifecycle.ps1 -ManagementGroup "mg-production"
 
 # Scan specific resource groups
-.\GET-AZVMLIFECYCLE.ps1 -SubscriptionId "sub-id" -ResourceGroup "rg-app","rg-data" -NoPrompt
+.\Get-AzVMLifecycle.ps1 -SubscriptionId "sub-id" -ResourceGroup "rg-app","rg-data"
 
 # Scan only VMs tagged with Environment=prod
-.\GET-AZVMLIFECYCLE.ps1 -Tag @{Environment='prod'} -NoPrompt
+.\Get-AzVMLifecycle.ps1 -Tag @{Environment='prod'}
 
 # Combine filters
-.\GET-AZVMLIFECYCLE.ps1 -SubscriptionId "sub-id" -Tag @{CostCenter='12345'; Environment='prod'} -NoPrompt
+.\Get-AzVMLifecycle.ps1 -SubscriptionId "sub-id" -Tag @{CostCenter='12345'; Environment='prod'}
 
 # Scan all VMs that have a "Department" tag (any value)
-.\GET-AZVMLIFECYCLE.ps1 -Tag @{Department='*'} -NoPrompt
+.\Get-AzVMLifecycle.ps1 -Tag @{Department='*'}
 ```
 
 Requires the `Az.ResourceGraph` module (`Install-Module Az.ResourceGraph -Scope CurrentUser`).
@@ -202,7 +244,7 @@ All columns except **SKU** are optional:
 > **Column names are flexible:** `SKU`, `Size`, or `VmSize` (falls back to `Name`) for the SKU column; `Region`, `Location`, or `AzureRegion` for region; `Qty`, `Quantity`, or `Count` for quantity.
 
 ```powershell
-.\GET-AZVMLIFECYCLE.ps1 -InputFile .\my-vms.csv -Region "eastus" -NoPrompt
+.\Get-AzVMLifecycle.ps1 -InputFile .\my-vms.csv -Region "eastus"
 ```
 
 **Option 3: From an Azure portal export (XLSX)**
@@ -210,7 +252,7 @@ All columns except **SKU** are optional:
 Export from the Azure portal (Virtual Machines blade → Export to CSV/Excel) and pass the file directly:
 
 ```powershell
-.\GET-AZVMLIFECYCLE.ps1 -InputFile .\AzureVirtualMachines.xlsx -NoPrompt
+.\Get-AzVMLifecycle.ps1 -InputFile .\AzureVirtualMachines.xlsx
 ```
 
 The parser maps `SIZE` → SKU and `LOCATION` → Region, converts display names (e.g., "West US" → `westus`), and aggregates one-VM-per-row into quantities. Requires the `ImportExcel` module.
@@ -269,20 +311,20 @@ After passing, candidates are ranked by an 8-dimension similarity score:
 By default, lifecycle reports include only PAYG cost columns when `-ShowPricing` is used:
 
 ```powershell
-.\GET-AZVMLIFECYCLE.ps1 -InputFile .\my-vms.csv -ShowPricing -NoPrompt
+.\Get-AzVMLifecycle.ps1 -InputFile .\my-vms.csv -ShowPricing
 ```
 
 Add `-RateOptimization` for Savings Plan (SP) and Reserved Instance (RI) savings columns:
 
 ```powershell
 # Full pricing: PAYG + SP/RI savings
-.\GET-AZVMLIFECYCLE.ps1 -InputFile .\my-vms.csv -ShowPricing -RateOptimization -NoPrompt
+.\Get-AzVMLifecycle.ps1 -InputFile .\my-vms.csv -ShowPricing -RateOptimization
 
 # Live scan with rate optimization
-.\GET-AZVMLIFECYCLE.ps1 -ShowPricing -RateOptimization -AutoExport -NoPrompt
+.\Get-AzVMLifecycle.ps1 -ShowPricing -RateOptimization -AutoExport
 
 # Azure portal export with full pricing
-.\GET-AZVMLIFECYCLE.ps1 -InputFile .\AzureVirtualMachines.xlsx -ShowPricing -RateOptimization -NoQuota -AutoExport
+.\Get-AzVMLifecycle.ps1 -InputFile .\AzureVirtualMachines.xlsx -ShowPricing -RateOptimization -NoQuota -AutoExport
 ```
 
 With `-RateOptimization`, the XLSX report adds 4 savings columns: `SP 1-Year Savings`, `SP 3-Year Savings`, `RI 1-Year Savings`, `RI 3-Year Savings`.
@@ -315,19 +357,19 @@ Use `-RegionPreset` for quick access to common region sets:
 
 ```powershell
 # Quick US East/West lifecycle scan
-.\GET-AZVMLIFECYCLE.ps1 -RegionPreset USEastWest -NoPrompt
+.\Get-AzVMLifecycle.ps1 -RegionPreset USEastWest
 
 # Top 5 US regions
-.\GET-AZVMLIFECYCLE.ps1 -RegionPreset USMajor -NoPrompt
+.\Get-AzVMLifecycle.ps1 -RegionPreset USMajor
 
 # European regions with auto-export
-.\GET-AZVMLIFECYCLE.ps1 -RegionPreset Europe -AutoExport -NoPrompt
+.\Get-AzVMLifecycle.ps1 -RegionPreset Europe -AutoExport
 
 # Azure Government (environment auto-detected)
-.\GET-AZVMLIFECYCLE.ps1 -RegionPreset USGov -NoPrompt
+.\Get-AzVMLifecycle.ps1 -RegionPreset USGov
 
 # Azure China / Mooncake (environment auto-detected)
-.\GET-AZVMLIFECYCLE.ps1 -RegionPreset China -NoPrompt
+.\Get-AzVMLifecycle.ps1 -RegionPreset China
 ```
 
 > **Note**: Region presets apply when using `-Region` or `-RegionPreset`. In live scan mode (default), regions are auto-detected from deployed VMs.
@@ -347,15 +389,13 @@ Use `-ImageURN` to verify SKU compatibility with a specific Azure Marketplace im
 
 ```powershell
 # Check ARM64 compatibility
-.\GET-AZVMLIFECYCLE.ps1 `
+.\Get-AzVMLifecycle.ps1 `
     -InputFile .\my-vms.csv `
-    -ImageURN "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-arm64:latest" `
-    -NoPrompt
+    -ImageURN "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-arm64:latest"
 
 # Check Gen2 compatibility
-.\GET-AZVMLIFECYCLE.ps1 `
-    -ImageURN "MicrosoftWindowsServer:WindowsServer:2022-datacenter-g2:latest" `
-    -NoPrompt
+.\Get-AzVMLifecycle.ps1 `
+    -ImageURN "MicrosoftWindowsServer:WindowsServer:2022-datacenter-g2:latest"
 ```
 
 When an image is specified, recommendations are further filtered to only include SKUs compatible with that image.
@@ -376,7 +416,7 @@ With `-ShowPricing`, the script automatically detects the best pricing source:
 
 ## AI Agent Integration (Copilot Skill)
 
-This repo includes a **Copilot skill** that teaches AI coding agents (VS Code Copilot, Claude, Copilot CLI) how to invoke GET-AZVMLIFECYCLE for lifecycle analysis. The skill provides routing logic, parameter mapping, and JSON output schema documentation so agents can translate natural language requests into the correct CLI invocations.
+This repo includes a **Copilot skill** that teaches AI coding agents (VS Code Copilot, Claude, Copilot CLI) how to invoke Get-AzVMLifecycle for lifecycle analysis. The skill provides routing logic, parameter mapping, and JSON output schema documentation so agents can translate natural language requests into the correct CLI invocations.
 
 **Skill file:** [.github/skills/azure-vm-lifecycle/SKILL.md](.github/skills/azure-vm-lifecycle/SKILL.md)
 
@@ -384,9 +424,9 @@ This repo includes a **Copilot skill** that teaches AI coding agents (VS Code Co
 
 | User says | Agent runs |
 |-----------|-----------|
-| "Which of my VMs are running retiring SKUs?" | `.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -JsonOutput` |
-| "Analyze this VM export for lifecycle risks" | `.\GET-AZVMLIFECYCLE.ps1 -InputFile .\vms.xlsx -NoPrompt -JsonOutput` |
-| "What should I replace Standard_D4s_v3 with?" | `.\GET-AZVMLIFECYCLE.ps1 -InputFile .\vms.csv -ShowPricing -NoPrompt -JsonOutput` |
+| "Which of my VMs are running retiring SKUs?" | `.\Get-AzVMLifecycle.ps1 -JsonOutput` |
+| "Analyze this VM export for lifecycle risks" | `.\Get-AzVMLifecycle.ps1 -InputFile .\vms.xlsx -JsonOutput` |
+| "What should I replace Standard_D4s_v3 with?" | `.\Get-AzVMLifecycle.ps1 -InputFile .\vms.csv -ShowPricing -JsonOutput` |
 
 ### Installing the skill for VS Code Copilot
 
@@ -417,9 +457,13 @@ See [ROADMAP.md](ROADMAP.md) for planned features including:
 
 This project is licensed under the MIT License - see [LICENSE](LICENSE) for details.
 
+## Acknowledgments
+
+This project was adapted from [Get-AzVMAvailability](https://github.com/ZacharyLuz/Get-AzVMAvailability) by **Zachary Luz**, which provides Azure VM SKU availability, capacity, and quota scanning. Get-AzVMLifecycle extends the original with lifecycle management capabilities including retirement detection, upgrade path recommendations, and compatibility-validated migration planning.
+
 ## Author
 
-**Barry Lowrance** — Fork of [Zachary Luz's Get-AzVMAvailability](https://github.com/ZacharyLuz/Get-AzVMAvailability) (personal project, not an official Microsoft product)
+**Barry Lowrance** (personal project, not an official Microsoft product)
 
 ## Support & Responsible Use
 
@@ -440,7 +484,7 @@ See [CHANGELOG.md](CHANGELOG.md) for version history.
 If Windows warns that the script came from the internet, unblock it once:
 
 ```powershell
-Unblock-File .\GET-AZVMLIFECYCLE.ps1
+Unblock-File .\Get-AzVMLifecycle.ps1
 ```
 
 ### `AzureEndpoints` property error at startup
@@ -448,10 +492,10 @@ Unblock-File .\GET-AZVMLIFECYCLE.ps1
 If you see an error like `The property 'AzureEndpoints' cannot be found on this object`, you are likely running an older script copy.
 
 ```powershell
-Select-String -Path .\GET-AZVMLIFECYCLE.ps1 -Pattern 'AzureEndpoints\s*=\s*\$null'
+Select-String -Path .\Get-AzVMLifecycle.ps1 -Pattern 'AzureEndpoints\s*=\s*\$null'
 ```
 
-No match indicates the file is stale. Download the latest `GET-AZVMLIFECYCLE.ps1` from the repository and re-run.
+No match indicates the file is stale. Download the latest `Get-AzVMLifecycle.ps1` from the repository and re-run.
 
 ### Running in Windows PowerShell 5.1
 
@@ -460,6 +504,6 @@ PowerShell 5.1 is not supported. The script now warns and exits early if launche
 Use PowerShell 7+ (`pwsh`):
 
 ```powershell
-pwsh -File .\GET-AZVMLIFECYCLE.ps1
+pwsh -File .\Get-AzVMLifecycle.ps1
 ```
 

@@ -65,7 +65,7 @@ jobs:
               run: |
                   ./tools/Invoke-RepoSelfAudit.ps1 `
                     -RepoRoot . `
-                    -PrimaryScript GET-AZVMLIFECYCLE.ps1 `
+                    -PrimaryScript Get-AzVMLifecycle.ps1 `
                     -FailOnCritical `
                     -MaxAllowedCritical 2
 

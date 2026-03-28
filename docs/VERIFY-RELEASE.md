@@ -1,6 +1,6 @@
 # Release Verification Checklist
 
-Use this checklist before running, sharing, or troubleshooting `GET-AZVMLIFECYCLE.ps1`.
+Use this checklist before running, sharing, or troubleshooting `Get-AzVMLifecycle.ps1`.
 
 ## Goals
 
@@ -19,7 +19,7 @@ git remote -v
 ## 2) Confirm Script Version
 
 ```powershell
-Select-String -Path .\GET-AZVMLIFECYCLE.ps1 -Pattern '^\$ScriptVersion\s*=\s*"'
+Select-String -Path .\Get-AzVMLifecycle.ps1 -Pattern '^\$ScriptVersion\s*=\s*"'
 ```
 
 Expected: version line reads `$ScriptVersion = "X.Y.Z"` where `X.Y.Z` matches the latest release in `CHANGELOG.md`.
@@ -36,7 +36,7 @@ Expected: `PSVersion.Major` is `7` or higher.
 ## 4) Confirm AzureEndpoints Startup Guard Exists
 
 ```powershell
-Select-String -Path .\GET-AZVMLIFECYCLE.ps1 -Pattern 'AzureEndpoints\s*=\s*\$null|Add-Member.+AzureEndpoints|RunContext\.AzureEndpoints'
+Select-String -Path .\Get-AzVMLifecycle.ps1 -Pattern 'AzureEndpoints\s*=\s*\$null|Add-Member.+AzureEndpoints|RunContext\.AzureEndpoints'
 ```
 
 Expected: at least one hit for the run-context property initialization and assignment guard.
@@ -44,11 +44,11 @@ Expected: at least one hit for the run-context property initialization and assig
 ## 5) Detect Stale Local Copy (Hash Compare with Upstream main)
 
 ```powershell
-$u       = "https://raw.githubusercontent.com/bzlowrance/Get-AzVMLifecycle/main/GET-AZVMLIFECYCLE.ps1"
+$u       = "https://raw.githubusercontent.com/bzlowrance/Get-AzVMLifecycle/main/Get-AzVMLifecycle.ps1"
 $tempDir = [System.IO.Path]::GetTempPath()
-$outFile = Join-Path -Path $tempDir -ChildPath "GET-AZVMLIFECYCLE.main.ps1"
+$outFile = Join-Path -Path $tempDir -ChildPath "Get-AzVMLifecycle.main.ps1"
 Invoke-WebRequest -Uri $u -OutFile $outFile
-(Get-FileHash .\GET-AZVMLIFECYCLE.ps1).Hash
+(Get-FileHash .\Get-AzVMLifecycle.ps1).Hash
 (Get-FileHash $outFile).Hash
 ```
 
@@ -57,17 +57,17 @@ Expected: hashes are identical.
 ## 6) Unblock Downloaded Script (If Needed)
 
 ```powershell
-Unblock-File .\GET-AZVMLIFECYCLE.ps1
+Unblock-File .\Get-AzVMLifecycle.ps1
 ```
 
 Use this when Windows marks the script as downloaded from the internet.
 
-## 7) Quick Smoke Run (Non-Interactive)
+## 7) Quick Smoke Run
 
 Prerequisite: signed in to Azure (`Connect-AzAccount`) and required modules installed.
 
 ```powershell
-pwsh -File .\GET-AZVMLIFECYCLE.ps1 -NoPrompt -TopN 3
+pwsh -File .\Get-AzVMLifecycle.ps1 -TopN 3
 ```
 
 Expected:
@@ -80,5 +80,5 @@ Expected:
 
 - Version mismatch: update local script from repository `main`.
 - Hash mismatch: local file is stale or modified.
-- Host mismatch: launch with `pwsh -File .\GET-AZVMLIFECYCLE.ps1`.
+- Host mismatch: launch with `pwsh -File .\Get-AzVMLifecycle.ps1`.
 - Execution policy warning: run `Unblock-File` once on the local script.

@@ -1,4 +1,4 @@
-﻿# PSScriptAnalyzer configuration for GET-AZVMLIFECYCLE
+# PSScriptAnalyzer configuration for Get-AzVMLifecycle
 # https://github.com/PowerShell/PSScriptAnalyzer
 #
 # This file is used by both local VS Code linting (on-save) and CI (GitHub Actions).

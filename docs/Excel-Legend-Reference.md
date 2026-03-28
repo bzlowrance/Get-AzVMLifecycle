@@ -1,6 +1,6 @@
 # Excel Export Legend Reference
 
-This document explains the Legend worksheet included in the Excel (XLSX) export from `GET-AZVMLIFECYCLE.ps1`.
+This document explains the Legend worksheet included in the Excel (XLSX) export from `Get-AzVMLifecycle.ps1`.
 
 ---
 
@@ -117,4 +117,4 @@ Think of each VM family as a multi-story parking garage:
 
 - [README.md](../README.md) - Main documentation
 - [CHANGELOG.md](../CHANGELOG.md) - Version history
-- Run `Get-Help .\GET-AZVMLIFECYCLE.ps1 -Full` for parameter details
+- Run `Get-Help .\Get-AzVMLifecycle.ps1 -Full` for parameter details

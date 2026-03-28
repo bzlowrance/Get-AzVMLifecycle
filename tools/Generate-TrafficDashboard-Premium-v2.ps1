@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Generates a premium v2 HTML traffic dashboard — full-width charts.
 
@@ -120,7 +120,7 @@ $html = @'
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Traffic — GET-AZVMLIFECYCLE</title>
+<title>Traffic — Get-AzVMLifecycle</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -400,7 +400,7 @@ $html = @'
 $html += @"
   <header class="reveal">
     <div class="tag">Repository Analytics</div>
-    <h1>GET-AZVMLIFECYCLE</h1>
+    <h1>Get-AzVMLifecycle</h1>
     <p>$generatedAt &middot; $dateRange</p>
   </header>
 "@
@@ -522,7 +522,7 @@ $html += "    </div>`n  </div>`n"
 # Footer
 $html += @'
   <footer class="reveal d5">
-    Built with <a href="https://github.com/bzlowrance/Get-AzVMLifecycle">GET-AZVMLIFECYCLE</a> &mdash; Collect-TrafficData.ps1 &plus; Generate-TrafficDashboard-Premium-v2.ps1
+    Built with <a href="https://github.com/bzlowrance/Get-AzVMLifecycle">Get-AzVMLifecycle</a> &mdash; Collect-TrafficData.ps1 &plus; Generate-TrafficDashboard-Premium-v2.ps1
   </footer>
 </div>
 '@

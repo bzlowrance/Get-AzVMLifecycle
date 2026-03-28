@@ -1,4 +1,4 @@
-# GET-AZVMLIFECYCLE — Live Demo Guide
+# Get-AzVMLifecycle — Live Demo Guide
 
 **Version:** 2.0.0 | **Duration:** ~30 minutes + Q&A | **Audience:** Internal Microsoft / External Customers
 
@@ -63,7 +63,7 @@ Closing: Recap + Q&A                  (~5 min)
 **The story:** You have VMs deployed across multiple subscriptions. Which ones are at risk?
 
 ```powershell
-.\GET-AZVMLIFECYCLE.ps1 -NoPrompt
+.\Get-AzVMLifecycle.ps1
 ```
 
 **What to do:**
@@ -94,13 +94,13 @@ Closing: Recap + Q&A                  (~5 min)
 
 ```powershell
 # Filter by tag
-.\GET-AZVMLIFECYCLE.ps1 -Tag @{Environment='prod'} -NoPrompt
+.\Get-AzVMLifecycle.ps1 -Tag @{Environment='prod'}
 
 # Filter by management group
-.\GET-AZVMLIFECYCLE.ps1 -ManagementGroup "mg-production" -NoPrompt
+.\Get-AzVMLifecycle.ps1 -ManagementGroup "mg-production"
 
 # Filter by resource group
-.\GET-AZVMLIFECYCLE.ps1 -ResourceGroup "rg-app","rg-data" -NoPrompt
+.\Get-AzVMLifecycle.ps1 -ResourceGroup "rg-app","rg-data"
 ```
 
 **Talking points:**
@@ -121,13 +121,13 @@ Closing: Recap + Q&A                  (~5 min)
 
 ```powershell
 # From an Azure portal XLSX export
-.\GET-AZVMLIFECYCLE.ps1 -InputFile .\AzureVirtualMachines.xlsx -NoPrompt
+.\Get-AzVMLifecycle.ps1 -InputFile .\AzureVirtualMachines.xlsx
 
 # From a simple CSV (SKU, Region, Qty columns)
-.\GET-AZVMLIFECYCLE.ps1 -InputFile .\my-vms.csv -Region "eastus" -NoPrompt
+.\Get-AzVMLifecycle.ps1 -InputFile .\my-vms.csv -Region "eastus"
 
 # Offline mode — skip quota checks
-.\GET-AZVMLIFECYCLE.ps1 -InputFile .\my-vms.csv -Region "eastus" -NoQuota -NoPrompt
+.\Get-AzVMLifecycle.ps1 -InputFile .\my-vms.csv -Region "eastus" -NoQuota
 ```
 
 **Talking points:**
@@ -151,10 +151,10 @@ Closing: Recap + Q&A                  (~5 min)
 
 ```powershell
 # PAYG pricing
-.\GET-AZVMLIFECYCLE.ps1 -ShowPricing -NoPrompt
+.\Get-AzVMLifecycle.ps1 -ShowPricing
 
 # Full pricing with Savings Plan and Reserved Instance savings
-.\GET-AZVMLIFECYCLE.ps1 -ShowPricing -RateOptimization -NoPrompt
+.\Get-AzVMLifecycle.ps1 -ShowPricing -RateOptimization
 ```
 
 **Talking points:**
@@ -178,14 +178,13 @@ Closing: Recap + Q&A                  (~5 min)
 ### Scenario 5: Excel Export (~3 min, LIVE or pre-captured)
 
 ```powershell
-.\GET-AZVMLIFECYCLE.ps1 `
+.\Get-AzVMLifecycle.ps1 `
     -ShowPricing `
     -RateOptimization `
     -SubMap `
     -RGMap `
     -AutoExport `
-    -OutputFormat XLSX `
-    -NoPrompt
+    -OutputFormat XLSX
 ```
 
 **Talking points:**
@@ -198,7 +197,7 @@ Closing: Recap + Q&A                  (~5 min)
 ### Scenario 6: JSON for Automation (~2 min, LIVE)
 
 ```powershell
-.\GET-AZVMLIFECYCLE.ps1 -JsonOutput -NoPrompt
+.\Get-AzVMLifecycle.ps1 -JsonOutput
 ```
 
 **Talking points:**

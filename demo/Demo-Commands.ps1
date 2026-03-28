@@ -1,6 +1,6 @@
-﻿<#
+<#
 .SYNOPSIS
-    Demo command script for GET-AZVMLIFECYCLE live demonstrations.
+    Demo command script for Get-AzVMLifecycle live demonstrations.
 .DESCRIPTION
     Copy-paste-ready commands organized by demo scenario.
     Run each section sequentially during the demo.
@@ -25,39 +25,37 @@ Get-Module Az.ResourceGraph -ListAvailable | Select-Object Name, Version -First 
 
 #region Scenario 1 — Live Scan (Default Mode) (~5 min)
 # No parameters needed — pulls VMs from Azure and analyzes lifecycle risks.
-.\GET-AZVMLIFECYCLE.ps1 -NoPrompt
+.\Get-AzVMLifecycle.ps1
 
 # Scan a specific subscription
-.\GET-AZVMLIFECYCLE.ps1 `
-    -SubscriptionId "your-subscription-id" `
-    -NoPrompt
+.\Get-AzVMLifecycle.ps1 `
+    -SubscriptionId "your-subscription-id"
+
 #endregion Scenario 1
 
 #region Scenario 2 — Scoped Scanning (~3 min)
 # Scan a management group (all child subscriptions)
-.\GET-AZVMLIFECYCLE.ps1 `
-    -ManagementGroup "mg-production" `
-    -NoPrompt
+.\Get-AzVMLifecycle.ps1 `
+    -ManagementGroup "mg-production"
 
 # Filter to tagged VMs only
-.\GET-AZVMLIFECYCLE.ps1 `
-    -Tag @{Environment='prod'} `
-    -NoPrompt
+.\Get-AzVMLifecycle.ps1 `
+    -Tag @{Environment='prod'}
 
 # Specific resource groups
-.\GET-AZVMLIFECYCLE.ps1 `
-    -ResourceGroup "rg-app", "rg-data" `
-    -NoPrompt
+.\Get-AzVMLifecycle.ps1 `
+    -ResourceGroup "rg-app", "rg-data"
+
 #endregion Scenario 2
 
 #region Scenario 3 — Placement Scores (~3 min)
 # Allocation likelihood from the Azure Placement Scores API: High / Medium / Low.
 # Answers "how likely is Azure to fulfill the request?"
 # Note: Requires "Compute Recommendations" RBAC role; degrades gracefully if absent.
-.\GET-AZVMLIFECYCLE.ps1 `
+.\Get-AzVMLifecycle.ps1 `
     -ShowPlacement `
-    -DesiredCount 5 `
-    -NoPrompt
+    -DesiredCount 5
+
 #endregion Scenario 3
 
 # ============================================================
@@ -66,22 +64,20 @@ Get-Module Az.ResourceGraph -ListAvailable | Select-Object Name, Version -First 
 
 #region Scenario 4 — CSV/XLSX Input (~4 min)
 # From a CSV file
-.\GET-AZVMLIFECYCLE.ps1 `
+.\Get-AzVMLifecycle.ps1 `
     -InputFile .\my-vms.csv `
-    -Region "eastus" `
-    -NoPrompt
+    -Region "eastus"
 
 # From an Azure portal VM export (XLSX)
-.\GET-AZVMLIFECYCLE.ps1 `
-    -InputFile .\AzureVirtualMachines.xlsx `
-    -NoPrompt
+.\Get-AzVMLifecycle.ps1 `
+    -InputFile .\AzureVirtualMachines.xlsx
 
 # Offline analysis (no Azure login needed for the analysis itself)
-.\GET-AZVMLIFECYCLE.ps1 `
+.\Get-AzVMLifecycle.ps1 `
     -InputFile .\my-vms.csv `
     -Region "eastus" `
-    -NoQuota `
-    -NoPrompt
+    -NoQuota
+
 #endregion Scenario 4
 
 # ============================================================
@@ -90,24 +86,23 @@ Get-Module Az.ResourceGraph -ListAvailable | Select-Object Name, Version -First 
 
 #region Scenario 5 — Pricing Comparison (~4 min)
 # ShowPricing auto-detects EA/MCA negotiated rates, falls back to retail.
-.\GET-AZVMLIFECYCLE.ps1 `
-    -ShowPricing `
-    -NoPrompt
+.\Get-AzVMLifecycle.ps1 `
+    -ShowPricing
 
 # Full pricing with Savings Plan and Reserved Instance savings
-.\GET-AZVMLIFECYCLE.ps1 `
+.\Get-AzVMLifecycle.ps1 `
     -ShowPricing `
-    -RateOptimization `
-    -NoPrompt
+    -RateOptimization
+
 #endregion Scenario 5
 
 #region Scenario 6 — Deployment Maps (~3 min)
 # Subscription and resource group deployment maps in XLSX
-.\GET-AZVMLIFECYCLE.ps1 `
+.\Get-AzVMLifecycle.ps1 `
     -SubMap `
     -RGMap `
-    -AutoExport `
-    -NoPrompt
+    -AutoExport
+
 #endregion Scenario 6
 
 # ============================================================
@@ -116,20 +111,20 @@ Get-Module Az.ResourceGraph -ListAvailable | Select-Object Name, Version -First 
 
 #region Scenario 7A — JSON Output for Pipelines
 # Structured JSON to stdout — pipe to file or parse in CI.
-.\GET-AZVMLIFECYCLE.ps1 `
-    -JsonOutput `
-    -NoPrompt
+.\Get-AzVMLifecycle.ps1 `
+    -JsonOutput
+
 #endregion Scenario 7A
 
 #region Scenario 7B — Excel Export for Stakeholders
 # Styled XLSX with color-coded risk levels, conditional formatting.
 # Requires ImportExcel module; falls back to CSV if not installed.
-.\GET-AZVMLIFECYCLE.ps1 `
+.\Get-AzVMLifecycle.ps1 `
     -ShowPricing `
     -RateOptimization `
     -SubMap `
     -RGMap `
     -AutoExport `
-    -OutputFormat XLSX `
-    -NoPrompt
+    -OutputFormat XLSX
+
 #endregion Scenario 7B

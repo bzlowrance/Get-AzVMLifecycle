@@ -1,6 +1,6 @@
-﻿function Get-MainScriptAst {
+function Get-MainScriptAst {
     param(
-        [string]$ScriptPath = (Join-Path $PSScriptRoot '..\GET-AZVMLIFECYCLE.ps1')
+        [string]$ScriptPath = (Join-Path $PSScriptRoot '..\Get-AzVMLifecycle.ps1')
     )
 
     if (-not (Test-Path $ScriptPath)) {
@@ -76,7 +76,7 @@ function Import-MainScriptFunctions {
         [Parameter(Mandatory)]
         [string[]]$FunctionNames,
 
-        [string]$ScriptPath = (Join-Path $PSScriptRoot '..\GET-AZVMLIFECYCLE.ps1')
+        [string]$ScriptPath = (Join-Path $PSScriptRoot '..\Get-AzVMLifecycle.ps1')
     )
 
     $ast = Get-MainScriptAst -ScriptPath $ScriptPath
@@ -115,7 +115,7 @@ function Get-MainScriptFunctionDefinition {
         [Parameter(Mandatory)]
         [string]$FunctionName,
 
-        [string]$ScriptPath = (Join-Path $PSScriptRoot '..\GET-AZVMLIFECYCLE.ps1')
+        [string]$ScriptPath = (Join-Path $PSScriptRoot '..\Get-AzVMLifecycle.ps1')
     )
 
     # Try module Private/ files first (v2.0.0+ layout)
@@ -147,7 +147,7 @@ function Import-MainScriptVariables {
         [Parameter(Mandatory)]
         [string[]]$VariableNames,
 
-        [string]$ScriptPath = (Join-Path $PSScriptRoot '..\GET-AZVMLIFECYCLE.ps1')
+        [string]$ScriptPath = (Join-Path $PSScriptRoot '..\Get-AzVMLifecycle.ps1')
     )
 
     $ast = Get-MainScriptAst -ScriptPath $ScriptPath
@@ -180,7 +180,7 @@ function Get-MainScriptVariableAssignment {
         [ValidateSet('script', 'global')]
         [string]$ScopePrefix = 'script',
 
-        [string]$ScriptPath = (Join-Path $PSScriptRoot '..\GET-AZVMLIFECYCLE.ps1')
+        [string]$ScriptPath = (Join-Path $PSScriptRoot '..\Get-AzVMLifecycle.ps1')
     )
 
     $ast = Get-MainScriptAst -ScriptPath $ScriptPath

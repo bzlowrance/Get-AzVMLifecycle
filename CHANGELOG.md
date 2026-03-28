@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0] - 2026-03-27
 
 ### Changed
 - **BREAKING: Project rebranded from `Get-AzVMAvailability` to `Get-AzVMLifecycle`** — script, module directory, manifest, loader, skill directory, and all internal references renamed to reflect lifecycle management as the core capability. Upstream `Get-AzVMAvailability` remains the availability-focused tool; this fork diverges with lifecycle analysis, retirement tracking, upgrade paths, and deployment mapping.
@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Module renamed from `AzVMAvailability` to `AzVMLifecycle`
 - Export file prefixes changed from `AzVMAvailability-*` to `AzVMLifecycle-*`
 - Copilot skill renamed from `azure-vm-availability` to `azure-vm-lifecycle`
+- **BREAKING: Replaced `-NoPrompt` with `-Interactive`** — Non-interactive mode is now the default, making every invocation automation- and CI/CD-friendly out of the box. Use `-Interactive` (alias `-Prompt`) to enable the guided wizard that walks through subscription selection, region picking, export path, pricing, placement scores, spot pricing, and image compatibility prompts. This eliminates the need to append `-NoPrompt` to every scripted command. The wizard remains available for first-time exploration, demos, and customer workshops.
 - Version bumped to 2.0.0
 
 ### Removed

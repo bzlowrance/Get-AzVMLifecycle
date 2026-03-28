@@ -161,7 +161,7 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
 ### PowerShell Module Refactoring
 - [ ] **Module Structure** - Refactor into `AzVMLifecycle` module with Public/Private functions
-- [ ] **Backward-Compatible Wrapper** - Keep `GET-AZVMLIFECYCLE.ps1` as entry point
+- [ ] **Backward-Compatible Wrapper** - Keep `Get-AzVMLifecycle.ps1` as entry point
 - [ ] **Shared Helpers** - Enable reuse across scanner, recommender, and Agent
 
 ### Azure Resource Graph Integration
@@ -191,7 +191,7 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 **Theme: Module Implementation**
 
 - [ ] **Module Structure** - Refactor into `AzVMLifecycle` module with Public/Private functions
-- [ ] **Backward-Compatible Wrapper** - Keep `GET-AZVMLIFECYCLE.ps1` as entry point
+- [ ] **Backward-Compatible Wrapper** - Keep `Get-AzVMLifecycle.ps1` as entry point
 - [ ] **Shared Helpers** - Enable reuse across scanner, recommender, and Agent
 - [ ] **Module Manifest + Validation** - Add and validate `.psd1` manifest in CI
 - [ ] **Migration Guidance** - Document script-to-module migration path and examples
@@ -243,8 +243,8 @@ flowchart TB
     MCP -->|"pwsh -Command"| Bridge
 
     subgraph Bridge["PowerShell Module Bridge"]
-        M1["GET-AZVMLIFECYCLE -JsonOutput"]
-        M2["GET-AZVMLIFECYCLE -Recommend -JsonOutput"]
+        M1["Get-AzVMLifecycle -JsonOutput"]
+        M2["Get-AzVMLifecycle -Recommend -JsonOutput"]
         M3["Get-AzVMPricing"]
     end
 

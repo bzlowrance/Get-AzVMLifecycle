@@ -1,6 +1,6 @@
-﻿<#
+<#
 .SYNOPSIS
-    Pre-commit validation script for GET-AZVMLIFECYCLE.
+    Pre-commit validation script for Get-AzVMLifecycle.
 .DESCRIPTION
     Runs five checks in sequence: syntax validation, PSScriptAnalyzer linting,
     Pester tests, AI-comment pattern scan, and version consistency.
@@ -19,13 +19,13 @@ param(
 
 $ErrorActionPreference = 'Continue'
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$mainScript = Join-Path $repoRoot 'GET-AZVMLIFECYCLE.ps1'
+$mainScript = Join-Path $repoRoot 'Get-AzVMLifecycle.ps1'
 $settingsFile = Join-Path $repoRoot 'PSScriptAnalyzerSettings.psd1'
 $testsDir = Join-Path $repoRoot 'tests'
 $failCount = 0
 
 Write-Host "`n========================================" -ForegroundColor Cyan
-Write-Host " GET-AZVMLIFECYCLE VALIDATION" -ForegroundColor Cyan
+Write-Host " Get-AzVMLifecycle VALIDATION" -ForegroundColor Cyan
 Write-Host "========================================`n" -ForegroundColor Cyan
 
 # ── Check 1: Syntax Validation ──────────────────────────────────────
@@ -164,8 +164,8 @@ if ($content -match '\$ScriptVersion\s*=\s*["'']([\d.]+)["'']') {
                 $versionMismatches += "README.md: version badge pattern not found"
             }
 
-            # Check README sample console output (e.g. GET-AZVMLIFECYCLE v1.12.2)
-            if ($readmeContent -match 'GET-AZVMLIFECYCLE v([\d.]+)') {
+            # Check README sample console output (e.g. Get-AzVMLifecycle v1.12.2)
+            if ($readmeContent -match 'Get-AzVMLifecycle v([\d.]+)') {
                 $readmeSampleVer = $matches[1]
                 if ($readmeSampleVer -ne $scriptVer) {
                     $versionMismatches += "README.md sample output: v$readmeSampleVer"

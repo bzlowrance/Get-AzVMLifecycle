@@ -1,4 +1,4 @@
-# Contributing to GET-AZVMLIFECYCLE
+# Contributing to Get-AzVMLifecycle
 
 > **This is a personal open-source project, not an official Microsoft product.** Contributing here does not create any relationship with, or obligation for, Microsoft.
 > Please do not include confidential or internal information in issues, PRs, or discussions.
@@ -59,7 +59,7 @@ gh pr view <pr-number> --json body --jq .body
 
     # Clone your fork
     git clone https://github.com/bzlowrance/Get-AzVMLifecycle.git
-    cd GET-AZVMLIFECYCLE
+    cd Get-AzVMLifecycle
 
     # Install dependencies
     Install-Module -Name Az.Compute -Scope CurrentUser

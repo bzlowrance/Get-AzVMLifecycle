@@ -1,6 +1,6 @@
 ---
 name: azure-vm-lifecycle
-description: "Azure VM lifecycle management — detect retiring SKUs, get upgrade recommendations, and plan migrations using GET-AZVMLIFECYCLE. USE FOR: which VMs are retiring, lifecycle risks, SKU retirement dates, upgrade recommendations, migration planning, compatibility-validated replacements, fleet modernization, old-gen SKU detection, VM lifecycle scan, analyze VM export. DO NOT USE FOR: general VM size recommendations without Azure login (use azure-compute), quota management via CLI (use azure-quotas), deploying VMs (use azure-prepare), raw availability scanning (use upstream Get-AzVMAvailability)."
+description: "Azure VM lifecycle management — detect retiring SKUs, get upgrade recommendations, and plan migrations using Get-AzVMLifecycle. USE FOR: which VMs are retiring, lifecycle risks, SKU retirement dates, upgrade recommendations, migration planning, compatibility-validated replacements, fleet modernization, old-gen SKU detection, VM lifecycle scan, analyze VM export. DO NOT USE FOR: general VM size recommendations without Azure login (use azure-compute), quota management via CLI (use azure-quotas), deploying VMs (use azure-prepare), raw availability scanning (use upstream Get-AzVMAvailability)."
 license: MIT
 metadata:
   author: Barry Lowrance
@@ -10,7 +10,7 @@ metadata:
 # Azure VM Lifecycle Management
 
 > **AUTHORITATIVE GUIDANCE** — This skill teaches you when and how to invoke
-> the `GET-AZVMLIFECYCLE.ps1` script via terminal for Azure VM lifecycle
+> the `Get-AzVMLifecycle.ps1` script via terminal for Azure VM lifecycle
 > analysis. The script is the execution engine; this skill is the routing layer.
 
 ## When to Use This Skill
@@ -45,8 +45,8 @@ Before running, verify these requirements. **Stop and help the user fix any miss
 
 ```powershell
 $paths = @(
-    "$env:USERPROFILE\Get-AzVMLifecycle\GET-AZVMLIFECYCLE.ps1",
-    "$env:USERPROFILE\source\repos\Get-AzVMLifecycle\GET-AZVMLIFECYCLE.ps1"
+    "$env:USERPROFILE\Get-AzVMLifecycle\Get-AzVMLifecycle.ps1",
+    "$env:USERPROFILE\source\repos\Get-AzVMLifecycle\Get-AzVMLifecycle.ps1"
 )
 $found = $paths | Where-Object { Test-Path $_ } | Select-Object -First 1
 if ($found) { Write-Host "Found: $found" } else { Write-Host "NOT FOUND" }
@@ -110,19 +110,19 @@ User request
 
 ```powershell
 # Scan current subscription
-.\GET-AZVMLIFECYCLE.ps1 -NoPrompt -JsonOutput
+.\Get-AzVMLifecycle.ps1 -JsonOutput
 
 # Scan specific subscriptions
-.\GET-AZVMLIFECYCLE.ps1 -SubscriptionId "sub-id-1","sub-id-2" -NoPrompt -JsonOutput
+.\Get-AzVMLifecycle.ps1 -SubscriptionId "sub-id-1","sub-id-2" -JsonOutput
 
 # Scan a management group
-.\GET-AZVMLIFECYCLE.ps1 -ManagementGroup "mg-production" -NoPrompt -JsonOutput
+.\Get-AzVMLifecycle.ps1 -ManagementGroup "mg-production" -JsonOutput
 
 # Filter by tag
-.\GET-AZVMLIFECYCLE.ps1 -Tag @{Environment='prod'} -NoPrompt -JsonOutput
+.\Get-AzVMLifecycle.ps1 -Tag @{Environment='prod'} -JsonOutput
 ```
 
-**Always use `-NoPrompt -JsonOutput`** when running from Copilot to get structured output.
+**Always use `-JsonOutput`** when running from Copilot to get structured output.
 
 ### Workflow 2: File-Based Analysis
 
@@ -130,13 +130,13 @@ User request
 
 ```powershell
 # From a CSV file
-.\GET-AZVMLIFECYCLE.ps1 -InputFile .\my-vms.csv -Region "eastus" -NoPrompt -JsonOutput
+.\Get-AzVMLifecycle.ps1 -InputFile .\my-vms.csv -Region "eastus" -JsonOutput
 
 # From an Azure portal VM export (XLSX)
-.\GET-AZVMLIFECYCLE.ps1 -InputFile .\AzureVirtualMachines.xlsx -NoPrompt -JsonOutput
+.\Get-AzVMLifecycle.ps1 -InputFile .\AzureVirtualMachines.xlsx -JsonOutput
 
 # Offline analysis (no Azure login for quota checks)
-.\GET-AZVMLIFECYCLE.ps1 -InputFile .\my-vms.csv -Region "eastus" -NoQuota -NoPrompt -JsonOutput
+.\Get-AzVMLifecycle.ps1 -InputFile .\my-vms.csv -Region "eastus" -NoQuota -JsonOutput
 ```
 
 **CSV file format:**
@@ -153,30 +153,30 @@ Column names are flexible: `SKU`/`Size`/`VmSize` for SKU, `Region`/`Location` fo
 
 ```powershell
 # PAYG pricing
-.\GET-AZVMLIFECYCLE.ps1 -ShowPricing -NoPrompt -JsonOutput
+.\Get-AzVMLifecycle.ps1 -ShowPricing -JsonOutput
 
 # Full pricing with RI/SP savings
-.\GET-AZVMLIFECYCLE.ps1 -ShowPricing -RateOptimization -NoPrompt -JsonOutput
+.\Get-AzVMLifecycle.ps1 -ShowPricing -RateOptimization -JsonOutput
 ```
 
 ### Workflow 4: Image Compatibility
 
 ```powershell
 # Check ARM64 image compatibility
-.\GET-AZVMLIFECYCLE.ps1 -InputFile .\my-vms.csv -ImageURN "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-arm64:latest" -NoPrompt -JsonOutput
+.\Get-AzVMLifecycle.ps1 -InputFile .\my-vms.csv -ImageURN "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-arm64:latest" -JsonOutput
 
 # Check Gen2 Windows image
-.\GET-AZVMLIFECYCLE.ps1 -ImageURN "MicrosoftWindowsServer:WindowsServer:2022-datacenter-g2:latest" -NoPrompt -JsonOutput
+.\Get-AzVMLifecycle.ps1 -ImageURN "MicrosoftWindowsServer:WindowsServer:2022-datacenter-g2:latest" -JsonOutput
 ```
 
 ### Workflow 5: Placement Scores
 
 ```powershell
 # Show allocation likelihood scores
-.\GET-AZVMLIFECYCLE.ps1 -ShowPlacement -NoPrompt -JsonOutput
+.\Get-AzVMLifecycle.ps1 -ShowPlacement -JsonOutput
 
 # With pricing enrichment
-.\GET-AZVMLIFECYCLE.ps1 -ShowPricing -ShowPlacement -NoPrompt -JsonOutput
+.\Get-AzVMLifecycle.ps1 -ShowPricing -ShowPlacement -JsonOutput
 ```
 
 **Notes:**
@@ -187,10 +187,10 @@ Column names are flexible: `SKU`/`Size`/`VmSize` for SKU, `Region`/`Location` fo
 
 ```powershell
 # XLSX with deployment maps
-.\GET-AZVMLIFECYCLE.ps1 -SubMap -RGMap -AutoExport -OutputFormat XLSX -NoPrompt
+.\Get-AzVMLifecycle.ps1 -SubMap -RGMap -AutoExport -OutputFormat XLSX
 
 # Full enrichment: pricing + maps + export
-.\GET-AZVMLIFECYCLE.ps1 -ShowPricing -RateOptimization -SubMap -RGMap -AutoExport -NoPrompt
+.\Get-AzVMLifecycle.ps1 -ShowPricing -RateOptimization -SubMap -RGMap -AutoExport
 ```
 
 ---
@@ -219,7 +219,7 @@ Column names are flexible: `SKU`/`Size`/`VmSize` for SKU, `Region`/`Location` fo
 | `-SubMap` | Switch | Add Subscription Map sheet to XLSX |
 | `-RGMap` | Switch | Add Resource Group Map sheet to XLSX |
 | `-NoQuota` | Switch | Skip quota checks (offline analysis) |
-| `-NoPrompt` | Switch | **Always use from Copilot** — skip interactive prompts |
+| `-Interactive` | Switch | Enable interactive wizard (non-interactive by default) |
 | `-JsonOutput` | Switch | **Always use from Copilot** — structured JSON output |
 | `-AutoExport` | Switch | Export without prompting |
 | `-OutputFormat` | String | Auto, CSV, or XLSX |
@@ -317,7 +317,7 @@ When presenting results to the user:
 | Issue | Solution |
 |-------|----------|
 | Script not found | `git clone https://github.com/bzlowrance/Get-AzVMLifecycle.git` |
-| PowerShell 5.1 error | Use `pwsh -File .\GET-AZVMLIFECYCLE.ps1` |
+| PowerShell 5.1 error | Use `pwsh -File .\Get-AzVMLifecycle.ps1` |
 | No Azure context | Run `Connect-AzAccount` first |
 | `AzureEndpoints` error | Script is stale — pull latest from repo |
 | Region validation fails | Add `-SkipRegionValidation` as last resort |

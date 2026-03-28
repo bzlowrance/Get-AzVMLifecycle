@@ -1,6 +1,6 @@
-﻿<#
+<#
 .SYNOPSIS
-    Repository self-audit quality gate for GET-AZVMLIFECYCLE-style PowerShell repos.
+    Repository self-audit quality gate for Get-AzVMLifecycle-style PowerShell repos.
 .DESCRIPTION
     Scans repository hygiene, GitHub standards files, PowerShell script quality
     hotspots, and emits Markdown + JSON + CSV reports suitable for CI gating and
@@ -19,7 +19,7 @@
 .PARAMETER RepoRoot
     Root directory of the repository. Defaults to current directory.
 .PARAMETER PrimaryScript
-    Relative path to the primary script to analyze. Defaults to GET-AZVMLIFECYCLE.ps1.
+    Relative path to the primary script to analyze. Defaults to Get-AzVMLifecycle.ps1.
 .PARAMETER OutputDir
     Relative path for output artifacts. Defaults to artifacts/audit.
 .PARAMETER FailOnCritical
@@ -40,7 +40,7 @@ param(
     [string]$RepoRoot = (Get-Location).Path,
 
     [Parameter()]
-    [string]$PrimaryScript = 'GET-AZVMLIFECYCLE.ps1',
+    [string]$PrimaryScript = 'Get-AzVMLifecycle.ps1',
 
     [Parameter()]
     [string]$OutputDir = 'artifacts/audit',

@@ -19,9 +19,9 @@
 - [ ] **Version strings in sync** — `.NOTES`, `$ScriptVersion`, and ROADMAP all match
 - [ ] **PSScriptAnalyzer clean** — `Invoke-ScriptAnalyzer -Path . -Recurse -Settings PSScriptAnalyzerSettings.psd1` returns no warnings/errors
 - [ ] **Pester tests pass** — `Invoke-Pester ./tests -Output Detailed`
-- [ ] **Syntax valid** — `[scriptblock]::Create((Get-Content 'GET-AZVMLIFECYCLE.ps1' -Raw)) | Out-Null` succeeds
+- [ ] **Syntax valid** — `[scriptblock]::Create((Get-Content 'Get-AzVMLifecycle.ps1' -Raw)) | Out-Null` succeeds
 - [ ] **CHANGELOG.md updated** (if functional change)
-- [ ] **New functions have Pester test coverage** (if adding functions to `GET-AZVMLIFECYCLE.ps1`)
+- [ ] **New functions have Pester test coverage** (if adding functions to `Get-AzVMLifecycle.ps1`)
 - [ ] **Release/tag plan prepared for this version bump** (required when `$ScriptVersion` changes)
 
 ## Validation

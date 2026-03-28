@@ -1,6 +1,6 @@
-﻿<#
+<#
 .SYNOPSIS
-    GET-AZVMLIFECYCLE - Azure VM lifecycle management tool.
+    Get-AzVMLifecycle - Azure VM lifecycle management tool.
 
 .DESCRIPTION
     Analyzes your deployed Azure VMs for lifecycle risks and recommends migration paths.
@@ -62,8 +62,8 @@
 .PARAMETER NoQuota
     Skip quota checks (useful for analyzing exports without subscription access).
 
-.PARAMETER NoPrompt
-    Skip all interactive prompts.
+.PARAMETER Interactive
+    Enable interactive wizard prompts for subscription, region, export, and feature selection.
 
 .PARAMETER JsonOutput
     Emit structured JSON output for automation/agent consumption.
@@ -84,7 +84,7 @@
     Directory path for export. Defaults to C:\Temp\AzVMLifecycle or /home/system in Cloud Shell.
 
 .NOTES
-    Name:           GET-AZVMLIFECYCLE
+    Name:           Get-AzVMLifecycle
     Author:         Barry Lowrance (fork of Zachary Luz's Get-AzVMAvailability)
     Version:        2.0.0
     License:        MIT
@@ -94,32 +94,32 @@
                     PowerShell 7+ (required)
 
 .EXAMPLE
-    .\GET-AZVMLIFECYCLE.ps1
+    .\Get-AzVMLifecycle.ps1
     Live scan: queries Azure Resource Graph for all deployed VMs, analyzes lifecycle
     risks, and shows recommendations for retiring or old-gen SKUs.
 
 .EXAMPLE
-    .\GET-AZVMLIFECYCLE.ps1 -SubscriptionId "xxxx-xxxx" -NoPrompt
-    Scan a specific subscription without interactive prompts.
+    .\Get-AzVMLifecycle.ps1 -SubscriptionId "xxxx-xxxx"
+    Scan a specific subscription.
 
 .EXAMPLE
-    .\GET-AZVMLIFECYCLE.ps1 -ManagementGroup "Production" -Tag @{Environment='prod'}
+    .\Get-AzVMLifecycle.ps1 -ManagementGroup "Production" -Tag @{Environment='prod'}
     Scan VMs in the Production management group tagged with Environment=prod.
 
 .EXAMPLE
-    .\GET-AZVMLIFECYCLE.ps1 -InputFile .\my-vms.csv -NoPrompt
+    .\Get-AzVMLifecycle.ps1 -InputFile .\my-vms.csv
     File-based analysis from a CSV with SKU, Region, and Qty columns.
 
 .EXAMPLE
-    .\GET-AZVMLIFECYCLE.ps1 -InputFile .\azure-portal-export.xlsx -ShowPricing -RateOptimization
+    .\Get-AzVMLifecycle.ps1 -InputFile .\azure-portal-export.xlsx -ShowPricing -RateOptimization
     Analyze an Azure portal VM export with full pricing comparison including RI/SP.
 
 .EXAMPLE
-    .\GET-AZVMLIFECYCLE.ps1 -SubMap -RGMap -AutoExport
+    .\Get-AzVMLifecycle.ps1 -SubMap -RGMap -AutoExport
     Live scan with subscription and resource group deployment maps in the XLSX export.
 
 .EXAMPLE
-    .\GET-AZVMLIFECYCLE.ps1 -JsonOutput -NoPrompt
+    .\Get-AzVMLifecycle.ps1 -JsonOutput
     Emit structured JSON for automation pipelines.
 
 .LINK
@@ -168,8 +168,9 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "Use compact output for narrow terminals")]
     [switch]$CompactOutput,
 
-    [Parameter(Mandatory = $false, HelpMessage = "Skip all interactive prompts")]
-    [switch]$NoPrompt,
+    [Parameter(Mandatory = $false, HelpMessage = "Enable interactive wizard prompts for subscription, region, and feature selection")]
+    [Alias('Prompt')]
+    [switch]$Interactive,
 
     [Parameter(Mandatory = $false, HelpMessage = "Skip quota checks (use when analyzing a customer extract without subscription access)")]
     [switch]$NoQuota,
@@ -242,9 +243,9 @@ $ProgressPreference = 'SilentlyContinue'  # Suppress progress bars for faster ex
 
 
 if ($PSVersionTable.PSVersion.Major -lt 7) {
-    Write-Warning "PowerShell 7+ is required to run GET-AZVMLIFECYCLE.ps1."
+    Write-Warning "PowerShell 7+ is required to run Get-AzVMLifecycle.ps1."
     Write-Host "Current host: $($PSVersionTable.PSEdition) $($PSVersionTable.PSVersion)" -ForegroundColor Yellow
-    Write-Host "Install PowerShell 7 and rerun with: pwsh -File .\GET-AZVMLIFECYCLE.ps1" -ForegroundColor Cyan
+    Write-Host "Install PowerShell 7 and rerun with: pwsh -File .\Get-AzVMLifecycle.ps1" -ForegroundColor Cyan
     throw "PowerShell 7+ is required. Current version: $($PSVersionTable.PSVersion)"
 }
 
@@ -2916,7 +2917,7 @@ $script:RunContext.AzureEndpoints = $script:AzureEndpoints
 # Prompt user for subscription(s) if not provided via parameters
 
 if (-not $TargetSubIds) {
-    if ($NoPrompt) {
+    if (-not $Interactive) {
         $ctx = Get-AzContext -ErrorAction SilentlyContinue
         if ($ctx -and $ctx.Subscription.Id) {
             $TargetSubIds = @($ctx.Subscription.Id)
@@ -2953,7 +2954,7 @@ if (-not $TargetSubIds) {
 }
 
 if (-not $Regions) {
-    if ($NoPrompt) {
+    if (-not $Interactive) {
         $Regions = @('eastus', 'eastus2', 'centralus')
         Write-Host "Using default regions: $($Regions -join ', ')" -ForegroundColor Cyan
     }
@@ -3043,10 +3044,10 @@ if ($SkipRegionValidation) {
     $validatedRegions = $Regions
 }
 elseif ($null -eq $validRegions -or $validRegions.Count -eq 0) {
-    if ($NoPrompt) {
-        Write-Host "`nERROR: Region validation is unavailable in -NoPrompt mode." -ForegroundColor Red
+    if (-not $Interactive) {
+        Write-Host "`nERROR: Region validation is unavailable." -ForegroundColor Red
         Write-Host "Use valid regions when connectivity is restored, or explicitly set -SkipRegionValidation to override." -ForegroundColor Yellow
-        throw "Region validation unavailable in -NoPrompt mode. Use -SkipRegionValidation to override."
+        throw "Region validation unavailable. Use -SkipRegionValidation to override."
     }
 
     Write-Warning "Region validation unavailable — proceeding with user-provided regions in interactive mode."
@@ -3083,8 +3084,8 @@ $Regions = $validatedRegions
 # Validate region count limit (skip for lifecycle scans — all deployed regions need pricing)
 $maxRegions = 5
 if ($Regions.Count -gt $maxRegions -and -not $lifecycleEntries) {
-    if ($NoPrompt) {
-        # In NoPrompt mode, auto-truncate with warning (don't hang on Read-Host)
+    if (-not $Interactive) {
+        # Auto-truncate with warning (don't hang on Read-Host)
         Write-Host "`nWARNING: " -ForegroundColor Yellow -NoNewline
         Write-Host "Specified $($Regions.Count) regions exceeds maximum of $maxRegions. Auto-truncating." -ForegroundColor White
         $Regions = @($Regions[0..($maxRegions - 1)])
@@ -3112,7 +3113,7 @@ if ($Regions.Count -gt $maxRegions -and -not $lifecycleEntries) {
 }
 
 # Export prompt
-if (-not $ExportPath -and -not $NoPrompt -and -not $AutoExport) {
+if (-not $ExportPath -and $Interactive -and -not $AutoExport) {
     Write-Host "`nExport results to file? (y/N): " -ForegroundColor Yellow -NoNewline
     $exportInput = Read-Host
     if ($exportInput -match '^y(es)?$') {
@@ -3124,14 +3125,14 @@ if (-not $ExportPath -and -not $NoPrompt -and -not $AutoExport) {
 
 # Pricing prompt
 $FetchPricing = $ShowPricing.IsPresent
-if (-not $ShowPricing -and -not $NoPrompt) {
+if (-not $ShowPricing -and $Interactive) {
     Write-Host "`nInclude estimated pricing? (adds ~5-10 sec) (y/N): " -ForegroundColor Yellow -NoNewline
     $pricingInput = Read-Host
     if ($pricingInput -match '^y(es)?$') { $FetchPricing = $true }
 }
 
 # Placement score prompt — fires independently (useful without pricing)
-if (-not $ShowPlacement -and -not $NoPrompt) {
+if (-not $ShowPlacement -and $Interactive) {
     Write-Host "`nShow allocation likelihood scores? (High/Medium/Low per SKU) (y/N): " -ForegroundColor Yellow -NoNewline
     $placementInput = Read-Host
     if ($placementInput -match '^y(es)?$') { $ShowPlacement = [switch]::new($true) }
@@ -3139,14 +3140,14 @@ if (-not $ShowPlacement -and -not $NoPrompt) {
 $script:RunContext.ShowPlacement = $ShowPlacement.IsPresent
 
 # Spot pricing prompt — only useful if pricing is enabled
-if (-not $ShowSpot -and -not $NoPrompt -and $FetchPricing) {
+if (-not $ShowSpot -and $Interactive -and $FetchPricing) {
     Write-Host "`nInclude Spot VM pricing alongside regular pricing? (y/N): " -ForegroundColor Yellow -NoNewline
     $spotInput = Read-Host
     if ($spotInput -match '^y(es)?$') { $ShowSpot = [switch]::new($true) }
 }
 
 # Image compatibility prompt
-if (-not $ImageURN -and -not $NoPrompt) {
+if (-not $ImageURN -and $Interactive) {
     Write-Host "`nCheck SKU compatibility with a specific VM image? (y/N): " -ForegroundColor Yellow -NoNewline
     $imageInput = Read-Host
     if ($imageInput -match '^y(es)?$') {
@@ -3384,7 +3385,7 @@ $script:RunContext.OutputWidth = $script:OutputWidth
 
 Write-Host "`n" -NoNewline
 Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
-Write-Host "GET-AZVMLIFECYCLE v$ScriptVersion" -ForegroundColor Green
+Write-Host "Get-AzVMLifecycle v$ScriptVersion" -ForegroundColor Green
 Write-Host "Personal project — not an official Microsoft product. Provided AS IS." -ForegroundColor DarkGray
 Write-Host ("=" * $script:OutputWidth) -ForegroundColor Gray
 Write-Host "Subscriptions: $($TargetSubIds.Count) | Regions: $($Regions -join ', ')" -ForegroundColor Cyan
