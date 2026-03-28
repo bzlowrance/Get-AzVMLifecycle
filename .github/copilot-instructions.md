@@ -238,6 +238,6 @@ with a forward-looking tone. Do not commit new files of this type.
 
 | Version | Theme | Status | Key Work |
 |---------|-------|--------|----------|
-| v2.0.0 | Lifecycle Focus + Rebrand | **In Progress** | Rebranded from Get-AzVMAvailability → Get-AzVMLifecycle. Simplified to 2-mode design: live ARG scan (default) + `-InputFile`. Removed `-Recommend`, `-Inventory`, `-InventoryFile`, `-EnableDrillDown`, `-FamilyFilter` modes. Module extraction (Public/Private layout). |
+| v2.0.0 | Lifecycle Focus + Rebrand | **Released** | Rebranded from Get-AzVMAvailability → Get-AzVMLifecycle. Simplified to 2-mode design: live ARG scan (default) + `-InputFile`. Removed `-Recommend`, `-Inventory`, `-InventoryFile`, `-EnableDrillDown`, `-FamilyFilter` modes. Module extraction (Public/Private layout). |
 | v2.1.0 | MCP Server | Planned | 4 tools: `check_vm_lifecycle`, `find_alternatives`, `get_vm_pricing`, `check_quota` — depends on v2.0.0 |
 | v2.2.0 | Proactive Monitoring | Planned | Watch mode, capacity alerts, Azure Monitor, Azure Functions |
