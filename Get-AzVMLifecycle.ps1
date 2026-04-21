@@ -244,26 +244,8 @@ param(
 
 $ProgressPreference = 'SilentlyContinue'  # Suppress progress bars for faster execution
 
-# Start transcript logging if -LogFile is specified
+# Transcript logging is deferred until after export path is resolved
 $script:TranscriptStarted = $false
-if ($LogFile) {
-    try {
-        if (Test-Path -LiteralPath $LogFile -PathType Container) {
-            $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-            $LogFile = Join-Path $LogFile "AzVMLifecycle-$timestamp.log"
-        }
-        $logDir = Split-Path -Path $LogFile -Parent
-        if ($logDir -and -not (Test-Path -LiteralPath $logDir)) {
-            New-Item -Path $logDir -ItemType Directory -Force | Out-Null
-        }
-        Start-Transcript -Path $LogFile -Append | Out-Null
-        $script:TranscriptStarted = $true
-        Write-Host "Logging to: $LogFile" -ForegroundColor DarkGray
-    }
-    catch {
-        Write-Warning "Failed to start transcript logging: $($_.Exception.Message)"
-    }
-}
 
 
 if ($PSVersionTable.PSVersion.Major -lt 7) {
@@ -788,6 +770,36 @@ else {
 
 if ($AutoExport -and -not $ExportPath) {
     $ExportPath = $defaultExportPath
+}
+
+# Start transcript logging
+# If -LogFile is specified, use it; otherwise auto-generate in the export directory
+if (-not $LogFile) {
+    $logDir = if ($ExportPath) { $ExportPath } else { $defaultExportPath }
+    $logTimestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    if ($InputFile) {
+        $logBase = [System.IO.Path]::GetFileNameWithoutExtension($InputFile)
+        $LogFile = Join-Path $logDir "${logBase}_Lifecycle_${logTimestamp}.log"
+    }
+    else {
+        $LogFile = Join-Path $logDir "AzVMLifecycle_${logTimestamp}.log"
+    }
+}
+elseif (Test-Path -LiteralPath $LogFile -PathType Container) {
+    $logTimestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $LogFile = Join-Path $LogFile "AzVMLifecycle_${logTimestamp}.log"
+}
+try {
+    $logFileDir = Split-Path -Path $LogFile -Parent
+    if ($logFileDir -and -not (Test-Path -LiteralPath $logFileDir)) {
+        New-Item -Path $logFileDir -ItemType Directory -Force | Out-Null
+    }
+    Start-Transcript -Path $LogFile -Append | Out-Null
+    $script:TranscriptStarted = $true
+    Write-Host "Logging to: $LogFile" -ForegroundColor DarkGray
+}
+catch {
+    Write-Warning "Failed to start transcript logging: $($_.Exception.Message)"
 }
 
 #endregion Configuration
