@@ -338,6 +338,8 @@ if ($InputFile) {
 
     # Auto-merge per-SKU regions into the -Region parameter so all needed regions get scanned
     $fileRegions = @($lifecycleEntries | Where-Object { $_.Region } | ForEach-Object { $_.Region } | Select-Object -Unique)
+    if (-not $script:TrustedRegions) { $script:TrustedRegions = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase) }
+    foreach ($r in $fileRegions) { [void]$script:TrustedRegions.Add($r) }
     if ($fileRegions.Count -gt 0) {
         if ($Region) {
             $mergedRegions = @($Region) + @($fileRegions) | Select-Object -Unique
@@ -473,6 +475,8 @@ if (-not $InputFile) {
 
     # Auto-merge discovered regions into -Region parameter
     $scanRegions = @($lifecycleEntries | ForEach-Object { $_.Region } | Select-Object -Unique)
+    $script:TrustedRegions = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($r in $scanRegions) { [void]$script:TrustedRegions.Add($r) }
     if ($scanRegions.Count -gt 0) {
         if ($Region) {
             $mergedRegions = @($Region) + @($scanRegions) | Select-Object -Unique
@@ -3132,6 +3136,11 @@ elseif ($null -eq $validRegions -or $validRegions.Count -eq 0) {
 else {
     foreach ($region in $Regions) {
         if ($validRegions -contains $region) {
+            $validatedRegions += $region
+        }
+        elseif ($script:TrustedRegions -and $script:TrustedRegions.Contains($region)) {
+            # Region discovered from ARG or input file — VMs are deployed there, trust it
+            Write-Verbose "Region '$region' not in locations API but trusted (discovered from deployed VMs)"
             $validatedRegions += $region
         }
         else {
