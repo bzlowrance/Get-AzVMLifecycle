@@ -729,6 +729,23 @@ if ($Environment) {
     $script:TargetEnvironment = $Environment
 }
 
+# Auto-detect environment from Az context when not explicitly set
+if (-not $script:TargetEnvironment) {
+    try {
+        $autoCtx = Get-AzContext -ErrorAction SilentlyContinue
+        if ($autoCtx -and $autoCtx.Environment -and $autoCtx.Environment.Name) {
+            $script:TargetEnvironment = $autoCtx.Environment.Name
+            Write-Verbose "Auto-detected environment from Az context: $($script:TargetEnvironment)"
+        }
+        else {
+            $script:TargetEnvironment = 'AzureCloud'
+        }
+    }
+    catch {
+        $script:TargetEnvironment = 'AzureCloud'
+    }
+}
+
 # Detect execution environment (Azure Cloud Shell vs local)
 $isCloudShell = $env:CLOUD_SHELL -eq "true" -or (Test-Path "/home/system" -ErrorAction SilentlyContinue)
 $defaultExportPath = if ($isCloudShell) { "/home/system" } else { "C:\Temp\AzVMLifecycle" }
