@@ -777,9 +777,9 @@ if ($AutoExport -and -not $ExportPath) {
 }
 
 # Start transcript logging
-# If -LogFile is specified, use it; otherwise auto-generate in the export directory
+# If -LogFile is specified, use it; otherwise auto-generate in the export directory (or current directory)
 if (-not $LogFile) {
-    $logDir = if ($ExportPath) { $ExportPath } else { $defaultExportPath }
+    $logDir = if ($ExportPath) { $ExportPath } else { $PWD.Path }
     $logTimestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
     if ($InputFile) {
         $logBase = [System.IO.Path]::GetFileNameWithoutExtension($InputFile)
