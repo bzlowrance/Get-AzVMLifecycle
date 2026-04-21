@@ -3662,6 +3662,27 @@ try {
 
         Write-Progress -Activity "Scanning Azure Regions" -Completed
 
+        # Sequential retry for quota data that failed during parallel scan (common in GOV due to tighter throttle limits)
+        if (-not $NoQuota) {
+            $quotaRetryRegions = @($regionData | Where-Object { -not $_.Error -and $_.QuotaError })
+            if ($quotaRetryRegions.Count -gt 0) {
+                Write-Verbose "Retrying quota fetch sequentially for $($quotaRetryRegions.Count) region(s) that failed during parallel scan..."
+                foreach ($rd in $quotaRetryRegions) {
+                    try {
+                        $retryQuotas = Invoke-WithRetry -MaxRetries $MaxRetries -OperationName "Get-AzVMUsage ($($rd.Region) retry)" -ScriptBlock {
+                            Get-AzVMUsage -Location $rd.Region -ErrorAction Stop
+                        }
+                        $rd.Quotas = if ($retryQuotas) { @($retryQuotas) } else { @() }
+                        $rd.QuotaError = $null
+                        Write-Verbose "Quota retry succeeded for $($rd.Region): $($rd.Quotas.Count) families"
+                    }
+                    catch {
+                        Write-Verbose "Quota retry failed for $($rd.Region): $($_.Exception.Message)"
+                    }
+                }
+            }
+        }
+
         $scanElapsed = (Get-Date) - $scanStartTime
         Write-Host "[$subName] Scan complete in $([math]::Round($scanElapsed.TotalSeconds, 1))s" -ForegroundColor Green
 
@@ -3694,10 +3715,14 @@ if ($lifecycleEntries.Count -gt 0) {
             if ($rd.QuotaError) {
                 Write-Warning "Quota data unavailable for region '$regionKey': $($rd.QuotaError)"
             }
+            elseif (-not $rd.Quotas -or @($rd.Quotas).Count -eq 0) {
+                Write-Warning "Quota API returned no data for region '$regionKey'. Quota columns will show '-' for VMs deployed here."
+            }
             if (-not $lcQuotaIndex.ContainsKey($regionKey)) {
                 $qLookup = @{}
                 foreach ($q in $rd.Quotas) { $qLookup[$q.Name.Value] = $q }
                 $lcQuotaIndex[$regionKey] = $qLookup
+                Write-Verbose "Quota index for '$regionKey': $($qLookup.Count) families loaded"
             }
             foreach ($sku in $rd.Skus) {
                 $skuRegionKey = "$($sku.Name)|$regionKey"
