@@ -76,9 +76,11 @@ function Get-AzActualPricing {
     $MaxPricesheetPages = 20
     try {
         $psUrl = "$armUrl/subscriptions/$SubscriptionId/providers/Microsoft.Consumption/pricesheets/default?api-version=2023-05-01&`$expand=properties/meterDetails&`$top=1000"
+        Write-Verbose "Tier 1 (Price Sheet): calling $psUrl"
 
         $totalItems = 0
         $pageCount = 0
+        $loggedMismatch = $false
         do {
             $pageCount++
             $psResponse = Invoke-WithRetry -MaxRetries $MaxRetries -OperationName "Consumption Price Sheet (page $pageCount)" -ScriptBlock {
@@ -95,8 +97,16 @@ function Get-AzActualPricing {
                     if ($md.meterSubCategory -match 'Windows') { continue }
 
                     # Normalize meterLocation display name to ARM format
-                    $normalizedRegion = ($md.meterLocation -replace '[\s-]', '').ToLower()
-                    if ($normalizedRegion -ne $armLocation) { continue }
+                    $meterLoc = $md.meterLocation
+                    $normalizedRegion = ($meterLoc -replace '[\s-]', '').ToLower()
+                    if ($normalizedRegion -ne $armLocation) {
+                        # Log first mismatch per page to help diagnose region name mapping
+                        if (-not $loggedMismatch) {
+                            Write-Verbose "  Tier 1 region filter: meterLocation='$meterLoc' normalized='$normalizedRegion' vs target='$armLocation'"
+                            $loggedMismatch = $true
+                        }
+                        continue
+                    }
 
                     # Convert billing meter name to ARM SKU name
                     $cleanName = $md.meterName -replace '\s+(Low Priority|Spot)\s*$', ''
@@ -169,8 +179,8 @@ function Get-AzActualPricing {
                         )
                     }
                     grouping = @(
-                        @{ type = 'Dimension'; name = 'MeterSubCategory' }
-                        @{ type = 'Dimension'; name = 'MeterName' }
+                        @{ type = 'Dimension'; name = 'MeterSubcategory' }
+                        @{ type = 'Dimension'; name = 'Meter' }
                     )
                 }
             } | ConvertTo-Json -Depth 10
@@ -188,8 +198,8 @@ function Get-AzActualPricing {
 
             $costIdx   = $colMap['PreTaxCost']
             $qtyIdx    = $colMap['UsageQuantity']
-            $subCatIdx = $colMap['MeterSubCategory']
-            $meterIdx  = $colMap['MeterName']
+            $subCatIdx = $colMap['MeterSubcategory']
+            $meterIdx  = $colMap['Meter']
             $currIdx   = if ($colMap.ContainsKey('Currency')) { $colMap['Currency'] } else { $null }
 
             $rowCount = if ($cmResponse.properties.rows) { $cmResponse.properties.rows.Count } else { 0 }
