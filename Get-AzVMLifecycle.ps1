@@ -1042,26 +1042,10 @@ function Get-AzureEndpoints {
     # Ensure no trailing slash
     $armUrl = $armUrl.TrimEnd('/')
 
-    # Derive pricing API URL from the portal URL
-    # Commercial: portal.azure.com -> prices.azure.com
-    # Government: portal.azure.us -> prices.azure.us
-    # China: portal.azure.cn -> prices.azure.cn
-    $portalUrl = $AzEnvironment.ManagementPortalUrl
-    if ($portalUrl) {
-        # Replace only the 'portal' subdomain with 'prices' (more precise than global replace)
-        $pricingUrl = $portalUrl -replace '^(https?://)?portal\.', '${1}prices.'
-        $pricingUrl = $pricingUrl.TrimEnd('/')
-        $pricingApiUrl = "$pricingUrl/api/retail/prices"
-    }
-    else {
-        # Fallback based on known environment names
-        $pricingApiUrl = switch ($AzEnvironment.Name) {
-            'AzureUSGovernment' { 'https://prices.azure.us/api/retail/prices' }
-            'AzureChinaCloud' { 'https://prices.azure.cn/api/retail/prices' }
-            'AzureGermanCloud' { 'https://prices.microsoftazure.de/api/retail/prices' }
-            default { 'https://prices.azure.com/api/retail/prices' }
-        }
-    }
+    # Azure Retail Prices API is a single global endpoint (prices.azure.com) for all clouds.
+    # It serves Commercial, Government, and China pricing data via armRegionName filter.
+    # There are no sovereign-specific pricing API endpoints (prices.azure.us does not exist).
+    $pricingApiUrl = 'https://prices.azure.com/api/retail/prices'
 
     $endpoints = @{
         EnvironmentName    = $AzEnvironment.Name
@@ -3530,11 +3514,14 @@ if ($FetchPricing) {
     else {
         # Fall back to retail pricing
         Write-Host "No negotiated rates found, using retail pricing..." -ForegroundColor DarkGray
+        Write-Verbose "Retail pricing API: $($script:AzureEndpoints.PricingApiUrl)"
         $script:RunContext.RegionPricing = @{}
         foreach ($regionCode in $Regions) {
             $pricingResult = Get-AzVMPricing -Region $regionCode -MaxRetries $MaxRetries -HoursPerMonth $HoursPerMonth -AzureEndpoints $script:AzureEndpoints -TargetEnvironment $script:TargetEnvironment -Caches $script:RunContext.Caches
             if ($pricingResult -is [array]) { $pricingResult = $pricingResult[0] }
             $script:RunContext.RegionPricing[$regionCode] = $pricingResult
+            $regularMap = Get-RegularPricingMap -PricingContainer $pricingResult
+            Write-Verbose "Retail pricing for '$regionCode': $($regularMap.Count) VM SKUs loaded"
         }
         Write-Host "$($Icons.Check) Using retail pricing (Linux pay-as-you-go)" -ForegroundColor DarkGray
     }
