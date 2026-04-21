@@ -4396,14 +4396,19 @@ if ($lifecycleEntries.Count -gt 0) {
 
             $lcSortedResults = $lifecycleResults | Sort-Object @{e={switch($_._ParentRisk){'High'{0}'Medium'{1}'Low'{2}default{3}}}}, _ParentSKU, _GroupSeq, _RowSeq
 
-            # SP/RI columns included only with -RateOptimization flag
+            # Detect sovereign/GOV tenant — all SP values are N/A, so omit those columns entirely
+            $isSovereignTenant = $script:TargetEnvironment -in @('AzureUSGovernment', 'AzureChinaCloud', 'AzureGermanCloud')
+
+            # SP/RI columns included only with -RateOptimization flag (SP columns excluded for sovereign tenants)
             $rateOptCols = if ($RateOptimization) {
-                @(
-                    @{N='SP 1-Year Savings';E={$_.SP1YrSavings}},
-                    @{N='SP 3-Year Savings';E={$_.SP3YrSavings}},
-                    @{N='RI 1-Year Savings';E={$_.RI1YrSavings}},
-                    @{N='RI 3-Year Savings';E={$_.RI3YrSavings}}
-                )
+                $cols = @()
+                if (-not $isSovereignTenant) {
+                    $cols += @{N='SP 1-Year Savings';E={$_.SP1YrSavings}}
+                    $cols += @{N='SP 3-Year Savings';E={$_.SP3YrSavings}}
+                }
+                $cols += @{N='RI 1-Year Savings';E={$_.RI1YrSavings}}
+                $cols += @{N='RI 3-Year Savings';E={$_.RI3YrSavings}}
+                $cols
             } else { @() }
 
             # PAYG pricing columns included only with -ShowPricing
