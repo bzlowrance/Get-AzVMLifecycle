@@ -2952,16 +2952,41 @@ function Get-AzActualPricing {
     }
     catch {
         $errorMsg = $_.Exception.Message
-        if ($errorMsg -match '403|401|Forbidden|Unauthorized') {
-            Write-Warning "Cost Management API access denied. Requires Billing Reader or Cost Management Reader role."
-            Write-Warning "Falling back to retail pricing."
+        $statusCode = $null
+        if ($_.Exception.Response) {
+            $statusCode = [int]$_.Exception.Response.StatusCode
         }
-        elseif ($errorMsg -match '404|NotFound') {
-            Write-Warning "Cost Management price sheet not available for this subscription type."
-            Write-Warning "This feature requires EA, MCA, or CSP billing. Falling back to retail pricing."
+        if (-not $statusCode -and $errorMsg -match '(\d{3})') {
+            $statusCode = [int]$Matches[1]
         }
-        else {
-            Write-Verbose "Failed to fetch actual pricing: $errorMsg"
+
+        # Only warn once per session (avoid repeating for each region)
+        if (-not $Caches.NegotiatedPricingWarned) {
+            $Caches.NegotiatedPricingWarned = $true
+
+            switch ($statusCode) {
+                401 {
+                    Write-Warning "Cost Management API: authentication failed (HTTP 401).`n  Your access token may be expired. Run: Connect-AzAccount"
+                }
+                403 {
+                    Write-Warning "Cost Management API: access denied (HTTP 403). Required RBAC (any one):"
+                    Write-Warning "  - Cost Management Reader  (scope: subscription or billing account)"
+                    Write-Warning "  - Billing Reader           (scope: billing account or enrollment)"
+                    Write-Warning "  - Enterprise Reader        (EA enrollments only)"
+                    Write-Warning "  To assign:  New-AzRoleAssignment -SignInName <user@domain> -RoleDefinitionName 'Cost Management Reader' -Scope /subscriptions/$SubscriptionId"
+                }
+                404 {
+                    Write-Warning "Cost Management price sheet not available for this subscription (HTTP 404)."
+                    Write-Warning "  Supported billing types: EA, MCA, MPA (CSP). Not supported: Pay-As-You-Go, Free, Sponsorship, MSDN."
+                }
+                {$_ -in 429, 503} {
+                    Write-Warning "Cost Management API throttled/unavailable (HTTP $statusCode). Retries exhausted."
+                }
+                default {
+                    Write-Warning "Cost Management API failed$(if ($statusCode) { " (HTTP $statusCode)" }): $errorMsg"
+                }
+            }
+            Write-Warning "Falling back to retail pricing (public list prices without negotiated discounts)."
         }
         return $null  # Return null to signal fallback needed
     }
