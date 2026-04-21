@@ -2897,54 +2897,65 @@ function Get-AzActualPricing {
             'Content-Type'  = 'application/json'
         }
 
-        # Query Cost Management API for price sheet data
-        # Using the consumption price sheet endpoint with environment-specific ARM URL
-        # OData exact match (eq) instead of contains() to avoid forcing a full backend scan.
-        # URL-encode the filter so spaces and quotes are valid across all HTTP clients/environments.
-        $odataFilter = [uri]::EscapeDataString("meterCategory eq 'Virtual Machines'")
-        $apiUrl = "$armUrl/subscriptions/$SubscriptionId/providers/Microsoft.Consumption/pricesheets/default?api-version=2023-05-01&`$filter=$odataFilter"
+        # Consumption price sheet endpoint — $expand=properties/meterDetails is required
+        # because meterDetails (category, region, meter name) is NOT populated by default.
+        # $filter is NOT supported by this API; filter client-side instead.
+        $MaxPricesheetPages = 10
+        $apiUrl = "$armUrl/subscriptions/$SubscriptionId/providers/Microsoft.Consumption/pricesheets/default?api-version=2023-05-01&`$expand=properties/meterDetails&`$top=1000"
 
+        $totalItems = 0
+        $pageCount = 0
         try {
-            $response = Invoke-WithRetry -MaxRetries $MaxRetries -OperationName "Cost Management API" -ScriptBlock {
-                Invoke-RestMethod -Uri $apiUrl -Method Get -Headers $headers -TimeoutSec 60
-            }
+            do {
+                $pageCount++
+                $response = Invoke-WithRetry -MaxRetries $MaxRetries -OperationName "Cost Management API (page $pageCount)" -ScriptBlock {
+                    Invoke-RestMethod -Uri $apiUrl -Method Get -Headers $headers -TimeoutSec 60
+                }
+
+                if ($response.properties.pricesheets) {
+                    $totalItems += $response.properties.pricesheets.Count
+                    foreach ($item in $response.properties.pricesheets) {
+                        $md = $item.meterDetails
+                        if (-not $md) { continue }
+
+                        # Client-side filter: VM category, matching region, Linux only
+                        if ($md.meterCategory -ne 'Virtual Machines') { continue }
+                        if ($md.meterSubCategory -match 'Windows') { continue }
+
+                        # Normalize meterLocation (display name like "US Gov Virginia") to ARM format ("usgovvirginia")
+                        $normalizedMeterRegion = ($md.meterLocation -replace '[\s-]', '').ToLower()
+                        if ($normalizedMeterRegion -ne $armLocation) { continue }
+
+                        # Extract VM size from meter name (e.g. "D2s v3" → "Standard_D2s")
+                        $vmSize = $md.meterName -replace ' .*$', ''
+                        if ($vmSize -match '^[A-Z]') {
+                            $vmSize = "Standard_$vmSize"
+                        }
+
+                        if ($vmSize -and -not $allPrices.ContainsKey($vmSize)) {
+                            $allPrices[$vmSize] = @{
+                                Hourly       = [math]::Round($item.unitPrice, 4)
+                                Monthly      = [math]::Round($item.unitPrice * $HoursPerMonth, 2)
+                                Currency     = $item.currencyCode
+                                Meter        = $md.meterName
+                                IsNegotiated = $true
+                            }
+                        }
+                    }
+                }
+
+                # Follow pagination via nextLink
+                $apiUrl = $response.properties.nextLink
+            } while ($apiUrl -and $pageCount -lt $MaxPricesheetPages)
         }
         finally {
             $headers['Authorization'] = $null
             $token = $null
         }
 
-        if ($response.properties.pricesheets) {
-            foreach ($item in $response.properties.pricesheets) {
-                # Normalize meterRegion (display name like "US Gov Virginia") to ARM format ("usgovvirginia")
-                $normalizedMeterRegion = ($item.meterRegion -replace '[\s-]', '').ToLower()
-
-                # Match VM SKUs by meter name pattern
-                if ($item.meterCategory -eq 'Virtual Machines' -and
-                    $normalizedMeterRegion -eq $armLocation -and
-                    $item.meterSubCategory -notmatch 'Windows') {
-
-                    # Extract VM size from meter details
-                    $vmSize = $item.meterDetails.meterName -replace ' .*$', ''
-                    if ($vmSize -match '^[A-Z]') {
-                        $vmSize = "Standard_$vmSize"
-                    }
-
-                    if ($vmSize -and -not $allPrices.ContainsKey($vmSize)) {
-                        $allPrices[$vmSize] = @{
-                            Hourly       = [math]::Round($item.unitPrice, 4)
-                            Monthly      = [math]::Round($item.unitPrice * $HoursPerMonth, 2)
-                            Currency     = $item.currencyCode
-                            Meter        = $item.meterName
-                            IsNegotiated = $true
-                        }
-                    }
-                }
-            }
-        }
-
-        if ($allPrices.Count -eq 0 -and $response.properties.pricesheets.Count -gt 0) {
-            Write-Verbose "Price sheet returned $($response.properties.pricesheets.Count) items but none matched region '$armLocation'. Falling back to retail pricing."
+        Write-Verbose "Price sheet: $totalItems items across $pageCount page(s), $($allPrices.Count) VM SKU prices matched region '$armLocation'."
+        if ($allPrices.Count -eq 0 -and $totalItems -gt 0) {
+            Write-Verbose "No VM meters matched region '$armLocation'. Check meterLocation values in the price sheet."
         }
 
         $Caches.ActualPricing[$cacheKey] = $allPrices
@@ -3538,7 +3549,7 @@ if ($FetchPricing) {
     }
     else {
         # Fall back to retail pricing
-        Write-Host "No negotiated rates found, using retail pricing..." -ForegroundColor DarkGray
+        Write-Host "No negotiated rates found, using retail pricing. (Run with -Verbose for details)" -ForegroundColor DarkGray
         Write-Verbose "Retail pricing API: $($script:AzureEndpoints.PricingApiUrl)"
         $script:RunContext.RegionPricing = @{}
         foreach ($regionCode in $Regions) {
