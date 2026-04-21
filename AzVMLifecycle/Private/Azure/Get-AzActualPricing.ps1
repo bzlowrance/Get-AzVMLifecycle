@@ -1,13 +1,12 @@
 function Get-AzActualPricing {
     <#
     .SYNOPSIS
-        Fetches actual negotiated pricing from Azure Cost Management API.
+        Derives effective negotiated VM pricing from Cost Management usage data.
     .DESCRIPTION
-        Retrieves your organization's actual negotiated rates including EA/MCA/CSP discounts.
-        Requires Billing Reader or Cost Management Reader role on the billing scope.
-    .NOTES
-        This function queries the Azure Cost Management Query API to get actual meter rates.
-        It requires appropriate RBAC permissions on the billing account/subscription.
+        Uses the Cost Management Query API to aggregate actual VM costs and usage
+        quantities, then derives the effective hourly rate (cost / hours).
+        Works for ALL billing types (EA, MCA, CSP, PAYG) and sovereign clouds.
+        Only requires Reader or Cost Management Reader role on the subscription.
     #>
     param(
         [Parameter(Mandatory = $true)]
@@ -40,79 +39,111 @@ function Get-AzActualPricing {
     $allPrices = @{}
 
     try {
-        # Get environment-specific endpoints (supports sovereign clouds)
         if (-not $AzureEndpoints) {
             $AzureEndpoints = Get-AzureEndpoints -EnvironmentName $TargetEnvironment
         }
         $armUrl = $AzureEndpoints.ResourceManagerUrl
 
-        # Get access token for Azure Resource Manager (uses environment-specific URL)
         $token = (Get-AzAccessToken -ResourceUrl $armUrl -ErrorAction Stop).Token
         $headers = @{
             'Authorization' = "Bearer $token"
             'Content-Type'  = 'application/json'
         }
 
-        # Consumption price sheet endpoint — $expand=properties/meterDetails is required
-        # because meterDetails (category, region, meter name) is NOT populated by default.
-        # $filter is NOT supported by this API; filter client-side instead.
-        $MaxPricesheetPages = 10
-        $apiUrl = "$armUrl/subscriptions/$SubscriptionId/providers/Microsoft.Consumption/pricesheets/default?api-version=2023-05-01&`$expand=properties/meterDetails&`$top=1000"
+        # Cost Management Query API: aggregate actual VM costs by meter for this region.
+        # Server-side filters to VM meters in the target region only.
+        # Effective hourly rate = PreTaxCost / UsageQuantity (quantity unit = 1 Hour for VMs).
+        $queryBody = @{
+            type      = 'ActualCost'
+            timeframe = 'MonthToDate'
+            dataset   = @{
+                granularity = 'None'
+                aggregation = @{
+                    PreTaxCost    = @{ name = 'PreTaxCost';    function = 'Sum' }
+                    UsageQuantity = @{ name = 'UsageQuantity'; function = 'Sum' }
+                }
+                filter = @{
+                    and = @(
+                        @{ dimensions = @{ name = 'MeterCategory';    operator = 'In'; values = @('Virtual Machines') } }
+                        @{ dimensions = @{ name = 'ResourceLocation'; operator = 'In'; values = @($armLocation) } }
+                    )
+                }
+                grouping = @(
+                    @{ type = 'Dimension'; name = 'MeterSubCategory' }
+                    @{ type = 'Dimension'; name = 'MeterName' }
+                )
+            }
+        } | ConvertTo-Json -Depth 10
 
-        $totalItems = 0
-        $pageCount = 0
+        $queryUrl = "$armUrl/subscriptions/$SubscriptionId/providers/Microsoft.CostManagement/query?api-version=2023-11-01"
+
         try {
-            do {
-                $pageCount++
-                $response = Invoke-WithRetry -MaxRetries $MaxRetries -OperationName "Cost Management API (page $pageCount)" -ScriptBlock {
-                    Invoke-RestMethod -Uri $apiUrl -Method Get -Headers $headers -TimeoutSec 60
-                }
-
-                if ($response.properties.pricesheets) {
-                    $totalItems += $response.properties.pricesheets.Count
-                    foreach ($item in $response.properties.pricesheets) {
-                        $md = $item.meterDetails
-                        if (-not $md) { continue }
-
-                        # Client-side filter: VM category, matching region, Linux only
-                        if ($md.meterCategory -ne 'Virtual Machines') { continue }
-                        if ($md.meterSubCategory -match 'Windows') { continue }
-
-                        # Normalize meterLocation (display name like "US Gov Virginia") to ARM format ("usgovvirginia")
-                        $normalizedMeterRegion = ($md.meterLocation -replace '[\s-]', '').ToLower()
-                        if ($normalizedMeterRegion -ne $armLocation) { continue }
-
-                        # Extract VM size from meter name (e.g. "D2s v3" → "Standard_D2s")
-                        $vmSize = $md.meterName -replace ' .*$', ''
-                        if ($vmSize -match '^[A-Z]') {
-                            $vmSize = "Standard_$vmSize"
-                        }
-
-                        if ($vmSize -and -not $allPrices.ContainsKey($vmSize)) {
-                            $allPrices[$vmSize] = @{
-                                Hourly       = [math]::Round($item.unitPrice, 4)
-                                Monthly      = [math]::Round($item.unitPrice * $HoursPerMonth, 2)
-                                Currency     = $item.currencyCode
-                                Meter        = $md.meterName
-                                IsNegotiated = $true
-                            }
-                        }
-                    }
-                }
-
-                # Follow pagination via nextLink
-                $apiUrl = $response.properties.nextLink
-            } while ($apiUrl -and $pageCount -lt $MaxPricesheetPages)
+            $response = Invoke-WithRetry -MaxRetries $MaxRetries -OperationName 'Cost Management Query' -ScriptBlock {
+                Invoke-RestMethod -Uri $queryUrl -Method Post -Headers $headers -Body $queryBody -ContentType 'application/json' -TimeoutSec 60
+            }
         }
         finally {
             $headers['Authorization'] = $null
             $token = $null
         }
 
-        Write-Verbose "Price sheet: $totalItems items across $pageCount page(s), $($allPrices.Count) VM SKU prices matched region '$armLocation'."
-        if ($allPrices.Count -eq 0 -and $totalItems -gt 0) {
-            Write-Verbose "No VM meters matched region '$armLocation'. Check meterLocation values in the price sheet."
+        # Build column-name to index map from response schema
+        $colMap = @{}
+        for ($i = 0; $i -lt $response.properties.columns.Count; $i++) {
+            $colMap[$response.properties.columns[$i].name] = $i
         }
+
+        $costIdx   = $colMap['PreTaxCost']
+        $qtyIdx    = $colMap['UsageQuantity']
+        $subCatIdx = $colMap['MeterSubCategory']
+        $meterIdx  = $colMap['MeterName']
+        $currIdx   = if ($colMap.ContainsKey('Currency')) { $colMap['Currency'] } else { $null }
+
+        $rowCount = 0
+        if ($response.properties.rows) {
+            $rowCount = $response.properties.rows.Count
+        }
+
+        foreach ($row in $response.properties.rows) {
+            $cost        = [double]$row[$costIdx]
+            $quantity    = [double]$row[$qtyIdx]
+            $subCategory = $row[$subCatIdx]
+            $meterName   = $row[$meterIdx]
+            $currency    = if ($null -ne $currIdx) { $row[$currIdx] } else { 'USD' }
+
+            if ($subCategory -match 'Windows') { continue }
+            if ($quantity -le 0) { continue }
+
+            # Derive effective hourly rate from actual usage
+            $hourlyRate = $cost / $quantity
+
+            # Convert billing meter name to ARM SKU name:
+            #   "D2s v3"          → "Standard_D2s_v3"
+            #   "B2ms"            → "Standard_B2ms"
+            #   "E8-4as v4"       → "Standard_E8-4as_v4"
+            #   "NC24ads A100 v4" → "Standard_NC24ads_A100_v4"
+            #   "D2s v3 Low Priority" → "Standard_D2s_v3"  (strip Spot/LP suffix)
+            $cleanName = $meterName -replace '\s+(Low Priority|Spot)\s*$', ''
+            $cleanName = $cleanName.Trim()
+            if ($cleanName -match '^[A-Z]') {
+                $vmSize = "Standard_$($cleanName -replace '\s+', '_')"
+            }
+            else {
+                continue
+            }
+
+            if (-not $allPrices.ContainsKey($vmSize)) {
+                $allPrices[$vmSize] = @{
+                    Hourly       = [math]::Round($hourlyRate, 4)
+                    Monthly      = [math]::Round($hourlyRate * $HoursPerMonth, 2)
+                    Currency     = $currency
+                    Meter        = $meterName
+                    IsNegotiated = $true
+                }
+            }
+        }
+
+        Write-Verbose "Cost Management Query: $rowCount usage rows, $($allPrices.Count) unique VM SKU prices for region '$armLocation'."
 
         $Caches.ActualPricing[$cacheKey] = $allPrices
         return $allPrices
@@ -133,28 +164,23 @@ function Get-AzActualPricing {
 
             switch ($statusCode) {
                 401 {
-                    Write-Warning "Cost Management API: authentication failed (HTTP 401).`n  Your access token may be expired. Run: Connect-AzAccount"
+                    Write-Warning "Cost Management Query: authentication failed (HTTP 401).`n  Your access token may be expired. Run: Connect-AzAccount"
                 }
                 403 {
-                    Write-Warning "Cost Management API: access denied (HTTP 403). Required RBAC (any one):"
-                    Write-Warning "  - Cost Management Reader  (scope: subscription or billing account)"
-                    Write-Warning "  - Billing Reader           (scope: billing account or enrollment)"
-                    Write-Warning "  - Enterprise Reader        (EA enrollments only)"
+                    Write-Warning "Cost Management Query: access denied (HTTP 403). Required RBAC (any one):"
+                    Write-Warning "  - Cost Management Reader  (scope: subscription)"
+                    Write-Warning "  - Reader                   (scope: subscription)"
                     Write-Warning "  To assign:  New-AzRoleAssignment -SignInName <user@domain> -RoleDefinitionName 'Cost Management Reader' -Scope /subscriptions/$SubscriptionId"
                 }
-                404 {
-                    Write-Warning "Cost Management price sheet not available for this subscription (HTTP 404)."
-                    Write-Warning "  Supported billing types: EA, MCA, MPA (CSP). Not supported: Pay-As-You-Go, Free, Sponsorship, MSDN."
-                }
                 {$_ -in 429, 503} {
-                    Write-Warning "Cost Management API throttled/unavailable (HTTP $statusCode). Retries exhausted."
+                    Write-Warning "Cost Management Query: throttled/unavailable (HTTP $statusCode). Retries exhausted."
                 }
                 default {
-                    Write-Warning "Cost Management API failed$(if ($statusCode) { " (HTTP $statusCode)" }): $errorMsg"
+                    Write-Warning "Cost Management Query failed$(if ($statusCode) { " (HTTP $statusCode)" }): $errorMsg"
                 }
             }
             Write-Warning "Falling back to retail pricing (public list prices without negotiated discounts)."
         }
-        return $null  # Return null to signal fallback needed
+        return $null
     }
 }
