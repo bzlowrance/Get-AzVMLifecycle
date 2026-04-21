@@ -3553,16 +3553,23 @@ try {
                     }
                 }
 
-                $quotas = if ($skipQuota) { @() } else {
-                    & $retryCall -Action {
-                        Get-AzVMUsage -Location $region -ErrorAction Stop
-                    } -Retries $maxRetries
+                $quotas = @()
+                $quotaError = $null
+                if (-not $skipQuota) {
+                    try {
+                        $quotas = & $retryCall -Action {
+                            Get-AzVMUsage -Location $region -ErrorAction Stop
+                        } -Retries $maxRetries
+                    }
+                    catch {
+                        $quotaError = $_.Exception.Message
+                    }
                 }
 
-                @{ Region = [string]$region; Skus = $allSkus; Quotas = $quotas; Error = $null }
+                @{ Region = [string]$region; Skus = $allSkus; Quotas = $quotas; QuotaError = $quotaError; Error = $null }
             }
             catch {
-                @{ Region = [string]$region; Skus = @(); Quotas = @(); Error = $_.Exception.Message }
+                @{ Region = [string]$region; Skus = @(); Quotas = @(); QuotaError = $null; Error = $_.Exception.Message }
             }
         }
 
@@ -3620,16 +3627,23 @@ try {
                             }
                         }
 
-                        $quotas = if ($skipQuota) { @() } else {
-                            & $retryCall -Action {
-                                Get-AzVMUsage -Location $region -ErrorAction Stop
-                            } -Retries $maxRetries
+                        $quotas = @()
+                        $quotaError = $null
+                        if (-not $skipQuota) {
+                            try {
+                                $quotas = & $retryCall -Action {
+                                    Get-AzVMUsage -Location $region -ErrorAction Stop
+                                } -Retries $maxRetries
+                            }
+                            catch {
+                                $quotaError = $_.Exception.Message
+                            }
                         }
 
-                        @{ Region = [string]$region; Skus = $allSkus; Quotas = $quotas; Error = $null }
+                        @{ Region = [string]$region; Skus = $allSkus; Quotas = $quotas; QuotaError = $quotaError; Error = $null }
                     }
                     catch {
-                        @{ Region = [string]$region; Skus = @(); Quotas = @(); Error = $_.Exception.Message }
+                        @{ Region = [string]$region; Skus = @(); Quotas = @(); QuotaError = $null; Error = $_.Exception.Message }
                     }
                 } -ThrottleLimit $ParallelThrottleLimit
             }
@@ -3677,6 +3691,9 @@ if ($lifecycleEntries.Count -gt 0) {
         foreach ($rd in $subData.RegionData) {
             if ($rd.Error) { continue }
             $regionKey = [string]$rd.Region
+            if ($rd.QuotaError) {
+                Write-Warning "Quota data unavailable for region '$regionKey': $($rd.QuotaError)"
+            }
             if (-not $lcQuotaIndex.ContainsKey($regionKey)) {
                 $qLookup = @{}
                 foreach ($q in $rd.Quotas) { $qLookup[$q.Name.Value] = $q }
