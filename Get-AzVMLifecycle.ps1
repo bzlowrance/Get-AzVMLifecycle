@@ -585,6 +585,34 @@ if ($lifecycleEntries -and $lifecycleEntries.Count -gt 0) {
     }
 }
 
+# Forward-looking version expansion: always scan newer generations of each deployed SKU family
+# Generates wildcard patterns for versions current+1 through ceiling so v6/v7/v8+ candidates
+# are discovered even when UpgradePath.json has no entry for the current generation.
+# Non-existent versions harmlessly return no SKUs from Get-AzComputeResourceSku.
+if ($lifecycleEntries -and $lifecycleEntries.Count -gt 0) {
+    $forwardPatterns = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($entry in $lifecycleEntries) {
+        $skuName = $entry.SKU
+        $baseLetter = $null
+        $vCPUStr = $null
+        if ($skuName -match '^Standard_([A-Z]+)[a-z]*(\d+)') {
+            $rawFamily = $Matches[1]
+            $vCPUStr = $Matches[2]
+            # Normalize: DS->D, GS->G (Premium SSD suffix = same family in newer gens)
+            $baseLetter = if ($rawFamily -cmatch '^([A-Z]+)S$' -and $rawFamily -notin 'NVS','NCS','NDS','HBS','HCS','HXS','FXS') { $Matches[1] } else { $rawFamily }
+        }
+        if (-not $baseLetter -or -not $vCPUStr) { continue }
+        $curVer = if ($skuName -match '_v(\d+)$') { [int]$Matches[1] } else { 1 }
+        for ($v = ($curVer + 1); $v -le $ForwardVersionCeiling; $v++) {
+            [void]$forwardPatterns.Add("Standard_${baseLetter}${vCPUStr}*_v${v}")
+        }
+    }
+    if ($forwardPatterns.Count -gt 0) {
+        $SkuFilter = @($SkuFilter) + @($forwardPatterns)
+        Write-Verbose "Lifecycle mode: added $($forwardPatterns.Count) forward-looking version patterns for scanning"
+    }
+}
+
 #region Configuration
 $ScriptVersion = "2.0.0"
 
@@ -622,6 +650,7 @@ $FamilyInfo = @{
     'NV' = @{ Purpose = 'GPU visualization'; Category = 'GPU' }
 }
 $MinRecommendationScoreDefault = 50
+$ForwardVersionCeiling = 10
 #endregion Constants
 # Runtime context for per-run state, outputs, and reusable caches
 $script:RunContext = [pscustomobject]@{
@@ -1473,9 +1502,9 @@ function Get-SkuSimilarityScore {
         Scores how similar a candidate SKU is to a target SKU profile.
     .DESCRIPTION
         Weighted scoring across 8 dimensions: vCPU (20), memory (20), family (18),
-        family version newness (12), architecture (10), premium IO (5), disk IOPS (8),
+        family version newness (15), architecture (10), premium IO (5), disk IOPS (8),
         data disk count (7). Max 100.
-        Family version newness strongly rewards the latest SKU generations (_v7 > _v6 > _v5)
+        Family version newness strongly rewards the latest SKU generations (_v9 > _v8 > _v7 > _v6)
         to prioritize lifecycle upgrades to the newest available hardware.
     #>
     param(
@@ -1518,20 +1547,22 @@ function Get-SkuSimilarityScore {
         }
     }
 
-    # Family version newness (12 points) — strongly rewards latest SKU generations
+    # Family version newness (15 points) — strongly rewards latest SKU generations
     $targetVer = if ($Target.FamilyVersion) { [int]$Target.FamilyVersion } else { 1 }
     $candidateVer = if ($Candidate.FamilyVersion) { [int]$Candidate.FamilyVersion } else { 1 }
 
     if ($Target.Family -eq $Candidate.Family) {
         if ($candidateVer -gt $targetVer) {
-            # Upgrade: base 8 + bonus for how new the candidate is
+            # Upgrade: base 8 + graduated bonus, newest generations score highest
             $verBonus = switch ($candidateVer) {
-                { $_ -ge 7 } { 4; break }
-                { $_ -ge 6 } { 3; break }
-                { $_ -ge 5 } { 2; break }
-                default      { 1 }
+                { $_ -ge 9 } { 7; break }
+                { $_ -ge 8 } { 6; break }
+                { $_ -ge 7 } { 5; break }
+                { $_ -ge 6 } { 4; break }
+                { $_ -ge 5 } { 3; break }
+                default      { 2 }
             }
-            $score += [math]::Min(8 + $verBonus, 12)
+            $score += [math]::Min(8 + $verBonus, 15)
         }
         elseif ($candidateVer -eq $targetVer) {
             $score += 5
@@ -1543,7 +1574,9 @@ function Get-SkuSimilarityScore {
     else {
         # Cross-family: graduated by candidate version
         $score += switch ($candidateVer) {
-            { $_ -ge 7 } { 10; break }
+            { $_ -ge 9 } { 13; break }
+            { $_ -ge 8 } { 12; break }
+            { $_ -ge 7 } { 11; break }
             { $_ -ge 6 } { 9; break }
             { $_ -ge 5 } { 7; break }
             { $_ -ge 4 } { 5; break }
@@ -2842,9 +2875,12 @@ function Get-AzActualPricing {
 
         if ($response.properties.pricesheets) {
             foreach ($item in $response.properties.pricesheets) {
+                # Normalize meterRegion (display name like "US Gov Virginia") to ARM format ("usgovvirginia")
+                $normalizedMeterRegion = ($item.meterRegion -replace '[\s-]', '').ToLower()
+
                 # Match VM SKUs by meter name pattern
                 if ($item.meterCategory -eq 'Virtual Machines' -and
-                    $item.meterRegion -eq $armLocation -and
+                    $normalizedMeterRegion -eq $armLocation -and
                     $item.meterSubCategory -notmatch 'Windows') {
 
                     # Extract VM size from meter details
@@ -2864,6 +2900,10 @@ function Get-AzActualPricing {
                     }
                 }
             }
+        }
+
+        if ($allPrices.Count -eq 0 -and $response.properties.pricesheets.Count -gt 0) {
+            Write-Verbose "Price sheet returned $($response.properties.pricesheets.Count) items but none matched region '$armLocation'. Falling back to retail pricing."
         }
 
         $Caches.ActualPricing[$cacheKey] = $allPrices
@@ -3957,12 +3997,18 @@ if ($lifecycleEntries.Count -gt 0) {
                 }
             }
 
+            # Detect sovereign/GOV regions where Savings Plans are not supported
+            $isSovereignRegion = $script:TargetEnvironment -in @('AzureUSGovernment', 'AzureChinaCloud', 'AzureGermanCloud') -or
+                ($deployedRegion -and $deployedRegion -match '^(usgov|usdod|usnat|ussec|china|germany)')
+
             # Look up savings plan and reservation pricing maps for this region
             $sp1YrMap = @{}; $sp3YrMap = @{}; $ri1YrMap = @{}; $ri3YrMap = @{}
             if ($RateOptimization -and $FetchPricing -and $deployedRegion -and $script:RunContext.RegionPricing[$deployedRegion]) {
                 $regionContainer = $script:RunContext.RegionPricing[$deployedRegion]
-                $sp1YrMap = Get-SavingsPlanPricingMap -PricingContainer $regionContainer -Term '1Yr'
-                $sp3YrMap = Get-SavingsPlanPricingMap -PricingContainer $regionContainer -Term '3Yr'
+                if (-not $isSovereignRegion) {
+                    $sp1YrMap = Get-SavingsPlanPricingMap -PricingContainer $regionContainer -Term '1Yr'
+                    $sp3YrMap = Get-SavingsPlanPricingMap -PricingContainer $regionContainer -Term '3Yr'
+                }
                 $ri1YrMap = Get-ReservationPricingMap -PricingContainer $regionContainer -Term '1Yr'
                 $ri3YrMap = Get-ReservationPricingMap -PricingContainer $regionContainer -Term '3Yr'
             }
@@ -3992,8 +4038,8 @@ if ($lifecycleEntries.Count -gt 0) {
                     TotalPriceDiff   = '-'
                     PAYG1Yr          = '-'
                     PAYG3Yr          = '-'
-                    SP1YrSavings     = '-'
-                    SP3YrSavings     = '-'
+                    SP1YrSavings     = if ($isSovereignRegion) { 'N/A' } else { '-' }
+                    SP3YrSavings     = if ($isSovereignRegion) { 'N/A' } else { '-' }
                     RI1YrSavings     = '-'
                     RI3YrSavings     = '-'
                     AlternativeCount = 0
@@ -4041,14 +4087,18 @@ if ($lifecycleEntries.Count -gt 0) {
                     }
 
                     # Look up savings plan and reservation savings vs PAYG fleet total
-                    $sp1YrSavingsStr = '-'; $sp3YrSavingsStr = '-'; $ri1YrSavingsStr = '-'; $ri3YrSavingsStr = '-'
+                    $sp1YrSavingsStr = if ($isSovereignRegion) { 'N/A' } else { '-' }
+                    $sp3YrSavingsStr = if ($isSovereignRegion) { 'N/A' } else { '-' }
+                    $ri1YrSavingsStr = '-'; $ri3YrSavingsStr = '-'
                     if ($RateOptimization -and $FetchPricing -and $null -ne $rec.priceMo) {
                         $recPaygFleet1Yr = [double]$rec.priceMo * 12 * $entryQty
                         $recPaygFleet3Yr = [double]$rec.priceMo * 36 * $entryQty
-                        $sp1Entry = $sp1YrMap[$rec.sku]
-                        if ($sp1Entry) { $sp1Fleet = [double]$sp1Entry.Monthly * 12 * $entryQty; $sp1Savings = $recPaygFleet1Yr - $sp1Fleet; $sp1YrSavingsStr = '$' + $sp1Savings.ToString('N0') }
-                        $sp3Entry = $sp3YrMap[$rec.sku]
-                        if ($sp3Entry) { $sp3Fleet = [double]$sp3Entry.Monthly * 36 * $entryQty; $sp3Savings = $recPaygFleet3Yr - $sp3Fleet; $sp3YrSavingsStr = '$' + $sp3Savings.ToString('N0') }
+                        if (-not $isSovereignRegion) {
+                            $sp1Entry = $sp1YrMap[$rec.sku]
+                            if ($sp1Entry) { $sp1Fleet = [double]$sp1Entry.Monthly * 12 * $entryQty; $sp1Savings = $recPaygFleet1Yr - $sp1Fleet; $sp1YrSavingsStr = '$' + $sp1Savings.ToString('N0') }
+                            $sp3Entry = $sp3YrMap[$rec.sku]
+                            if ($sp3Entry) { $sp3Fleet = [double]$sp3Entry.Monthly * 36 * $entryQty; $sp3Savings = $recPaygFleet3Yr - $sp3Fleet; $sp3YrSavingsStr = '$' + $sp3Savings.ToString('N0') }
+                        }
                         $ri1Entry = $ri1YrMap[$rec.sku]
                         if ($ri1Entry) { $ri1Fleet = [double]$ri1Entry.Total * $entryQty; $ri1Savings = $recPaygFleet1Yr - $ri1Fleet; $ri1YrSavingsStr = '$' + $ri1Savings.ToString('N0') }
                         $ri3Entry = $ri3YrMap[$rec.sku]

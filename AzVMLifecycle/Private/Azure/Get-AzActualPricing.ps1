@@ -72,9 +72,12 @@ function Get-AzActualPricing {
 
         if ($response.properties.pricesheets) {
             foreach ($item in $response.properties.pricesheets) {
+                # Normalize meterRegion (display name like "US Gov Virginia") to ARM format ("usgovvirginia")
+                $normalizedMeterRegion = ($item.meterRegion -replace '[\s-]', '').ToLower()
+
                 # Match VM SKUs by meter name pattern
                 if ($item.meterCategory -eq 'Virtual Machines' -and
-                    $item.meterRegion -eq $armLocation -and
+                    $normalizedMeterRegion -eq $armLocation -and
                     $item.meterSubCategory -notmatch 'Windows') {
 
                     # Extract VM size from meter details
@@ -94,6 +97,10 @@ function Get-AzActualPricing {
                     }
                 }
             }
+        }
+
+        if ($allPrices.Count -eq 0 -and $response.properties.pricesheets.Count -gt 0) {
+            Write-Verbose "Price sheet returned $($response.properties.pricesheets.Count) items but none matched region '$armLocation'. Falling back to retail pricing."
         }
 
         $Caches.ActualPricing[$cacheKey] = $allPrices
