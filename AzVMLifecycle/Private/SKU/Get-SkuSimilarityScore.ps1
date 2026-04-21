@@ -4,9 +4,9 @@ function Get-SkuSimilarityScore {
         Scores how similar a candidate SKU is to a target SKU profile.
     .DESCRIPTION
         Weighted scoring across 8 dimensions: vCPU (20), memory (20), family (18),
-        family version newness (12), architecture (10), premium IO (5), disk IOPS (8),
+        family version newness (15), architecture (10), premium IO (5), disk IOPS (8),
         data disk count (7). Max 100.
-        Family version newness strongly rewards the latest SKU generations (_v7 > _v6 > _v5)
+        Family version newness strongly rewards the latest SKU generations (_v9 > _v8 > _v7 > _v6)
         to prioritize lifecycle upgrades to the newest available hardware.
     #>
     param(
@@ -49,20 +49,22 @@ function Get-SkuSimilarityScore {
         }
     }
 
-    # Family version newness (12 points) — strongly rewards latest SKU generations
+    # Family version newness (15 points) — strongly rewards latest SKU generations
     $targetVer = if ($Target.FamilyVersion) { [int]$Target.FamilyVersion } else { 1 }
     $candidateVer = if ($Candidate.FamilyVersion) { [int]$Candidate.FamilyVersion } else { 1 }
 
     if ($Target.Family -eq $Candidate.Family) {
         if ($candidateVer -gt $targetVer) {
-            # Upgrade: base 8 + bonus for how new the candidate is
+            # Upgrade: base 8 + graduated bonus, newest generations score highest
             $verBonus = switch ($candidateVer) {
-                { $_ -ge 7 } { 4; break }
-                { $_ -ge 6 } { 3; break }
-                { $_ -ge 5 } { 2; break }
-                default      { 1 }
+                { $_ -ge 9 } { 7; break }
+                { $_ -ge 8 } { 6; break }
+                { $_ -ge 7 } { 5; break }
+                { $_ -ge 6 } { 4; break }
+                { $_ -ge 5 } { 3; break }
+                default      { 2 }
             }
-            $score += [math]::Min(8 + $verBonus, 12)
+            $score += [math]::Min(8 + $verBonus, 15)
         }
         elseif ($candidateVer -eq $targetVer) {
             $score += 5
@@ -74,7 +76,9 @@ function Get-SkuSimilarityScore {
     else {
         # Cross-family: graduated by candidate version
         $score += switch ($candidateVer) {
-            { $_ -ge 7 } { 10; break }
+            { $_ -ge 9 } { 13; break }
+            { $_ -ge 8 } { 12; break }
+            { $_ -ge 7 } { 11; break }
             { $_ -ge 6 } { 9; break }
             { $_ -ge 5 } { 7; break }
             { $_ -ge 4 } { 5; break }
