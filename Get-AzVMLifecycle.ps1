@@ -236,10 +236,34 @@ param(
     [switch]$SubMap,
 
     [Parameter(Mandatory = $false, HelpMessage = "Add a 'Resource Group Map' sheet to the lifecycle XLSX showing VM counts grouped by resource group, subscription, region, and SKU.")]
-    [switch]$RGMap
+    [switch]$RGMap,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Path to a log file for capturing terminal output. If a directory is specified, a timestamped log file is created. If omitted, no log is written.")]
+    [string]$LogFile
 )
 
 $ProgressPreference = 'SilentlyContinue'  # Suppress progress bars for faster execution
+
+# Start transcript logging if -LogFile is specified
+$script:TranscriptStarted = $false
+if ($LogFile) {
+    try {
+        if (Test-Path -LiteralPath $LogFile -PathType Container) {
+            $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+            $LogFile = Join-Path $LogFile "AzVMLifecycle-$timestamp.log"
+        }
+        $logDir = Split-Path -Path $LogFile -Parent
+        if ($logDir -and -not (Test-Path -LiteralPath $logDir)) {
+            New-Item -Path $logDir -ItemType Directory -Force | Out-Null
+        }
+        Start-Transcript -Path $LogFile -Append | Out-Null
+        $script:TranscriptStarted = $true
+        Write-Host "Logging to: $LogFile" -ForegroundColor DarkGray
+    }
+    catch {
+        Write-Warning "Failed to start transcript logging: $($_.Exception.Message)"
+    }
+}
 
 
 if ($PSVersionTable.PSVersion.Major -lt 7) {
@@ -4762,4 +4786,7 @@ if ($lifecycleEntries.Count -gt 0) {
 }
 finally {
     [void](Restore-OriginalSubscriptionContext -OriginalSubscriptionId $initialSubscriptionId)
+    if ($script:TranscriptStarted) {
+        try { Stop-Transcript | Out-Null } catch { }
+    }
 }
