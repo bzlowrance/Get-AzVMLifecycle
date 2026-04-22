@@ -3691,6 +3691,21 @@ if ($FetchPricing) {
 
     if ($actualPricingSuccess -and $script:RunContext.RegionPricing.Count -gt 0) {
         $script:RunContext.UsingActualPricing = $true
+        # Backfill with retail pricing for SKUs not covered by negotiated rates
+        foreach ($regionCode in $Regions) {
+            $retailResult = Get-AzVMPricing -Region $regionCode -MaxRetries $MaxRetries -HoursPerMonth $HoursPerMonth -AzureEndpoints $script:AzureEndpoints -TargetEnvironment $script:TargetEnvironment -Caches $script:RunContext.Caches
+            if ($retailResult -is [array]) { $retailResult = $retailResult[0] }
+            $retailMap = Get-RegularPricingMap -PricingContainer $retailResult
+            $negotiatedMap = $script:RunContext.RegionPricing[$regionCode]
+            $backfillCount = 0
+            foreach ($skuName in $retailMap.Keys) {
+                if (-not $negotiatedMap.ContainsKey($skuName)) {
+                    $negotiatedMap[$skuName] = $retailMap[$skuName]
+                    $backfillCount++
+                }
+            }
+            Write-Verbose "Retail backfill for '$regionCode': $backfillCount SKUs added (negotiated: $($negotiatedMap.Count - $backfillCount), total: $($negotiatedMap.Count))"
+        }
         Write-Host "$($Icons.Check) Using negotiated pricing (EA/MCA/CSP rates detected)" -ForegroundColor Green
     }
     else {
