@@ -35,35 +35,25 @@ function Get-AzActualPricing {
     if (-not $Caches.ActualPricing) {
         $Caches.ActualPricing = @{}
     }
-    $cacheKey = "$SubscriptionId-$Region"
-
-    if ($Caches.ActualPricing.ContainsKey($cacheKey)) {
-        return $Caches.ActualPricing[$cacheKey]
-    }
 
     $armLocation = $Region.ToLower() -replace '\s', ''
-    $allPrices = @{}
+
+    # EA/MCA negotiated rates are set at the enrollment level — identical across
+    # all subscriptions. Page through the Price Sheet once, group all Linux VM
+    # meters by meterLocation, and serve every subsequent region from cache.
+    if ($Caches.ActualPricing.ContainsKey('AllRegions')) {
+        $allRegionPrices = $Caches.ActualPricing['AllRegions']
+        $regionPrices = if ($allRegionPrices.ContainsKey($armLocation)) { $allRegionPrices[$armLocation] } else { @{} }
+        if ($regionPrices.Count -gt 0) {
+            Write-Host "  Tier 1 (Price Sheet): $($regionPrices.Count) negotiated SKU prices for '$Region' (cached)" -ForegroundColor DarkGray
+        }
+        return $regionPrices
+    }
 
     if (-not $AzureEndpoints) {
         $AzureEndpoints = Get-AzureEndpoints -EnvironmentName $TargetEnvironment
     }
     $armUrl = $AzureEndpoints.ResourceManagerUrl
-
-    # Gov cloud EA/MCA enrollments often map gov meters to commercial region
-    # display names in the Price Sheet. Build a set of acceptable normalized
-    # region names so Tier 1 can match either the real or mapped name.
-    $govToCommercialMap = @{
-        'usgovarizona'  = 'ussouthcentral'
-        'usgovtexas'    = 'usnorthcentral'
-        'usgovvirginia' = 'useast'
-        'usdodcentral'  = 'uscentraleuap'
-        'usdodeast'     = 'useast2euap'
-    }
-    $acceptedRegions = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-    [void]$acceptedRegions.Add($armLocation)
-    if ($govToCommercialMap.ContainsKey($armLocation)) {
-        [void]$acceptedRegions.Add($govToCommercialMap[$armLocation])
-    }
 
     $token = $null
     $headers = $null
@@ -88,15 +78,19 @@ function Get-AzActualPricing {
     # pretaxStandardRate = retail listing price (for discount calculation).
     # Requires $expand=properties/meterDetails to populate category/region/meter fields.
     # Only works for EA/MCA billing; returns 404 for PAYG/Sponsorship/MSDN.
+    #
+    # We page through the entire Price Sheet ONCE and group all Linux VM meters
+    # by their normalized meterLocation. No region filtering — we capture everything.
     $tier1Success = $false
-    $MaxPricesheetPages = 20
+    $allRegionPrices = @{}  # key = normalized location, value = hashtable of SKU → pricing
+    $MaxPricesheetPages = 100
     try {
         $psUrl = "$armUrl/subscriptions/$SubscriptionId/providers/Microsoft.Consumption/pricesheets/default?api-version=2023-05-01&`$expand=properties/meterDetails&`$top=1000"
         Write-Verbose "Tier 1 (Price Sheet): calling $psUrl"
 
         $totalItems = 0
         $pageCount = 0
-        $loggedMismatch = $false
+        $totalVmMeters = 0
         do {
             $pageCount++
             $psResponse = Invoke-WithRetry -MaxRetries $MaxRetries -OperationName "Consumption Price Sheet (page $pageCount)" -ScriptBlock {
@@ -112,30 +106,26 @@ function Get-AzActualPricing {
                     if ($md.meterCategory -ne 'Virtual Machines') { continue }
                     if ($md.meterSubCategory -match 'Windows') { continue }
 
-                    # Normalize meterLocation display name to ARM format
+                    # Normalize meterLocation to ARM-style key (lowercase, no spaces/hyphens)
                     $meterLoc = $md.meterLocation
                     $normalizedRegion = ($meterLoc -replace '[\s-]', '').ToLower()
-                    if (-not $acceptedRegions.Contains($normalizedRegion)) {
-                        if (-not $loggedMismatch) {
-                            Write-Verbose "  Tier 1 region filter: meterLocation='$meterLoc' normalized='$normalizedRegion' not in accepted set ($($acceptedRegions -join ', '))"
-                            $loggedMismatch = $true
-                        }
-                        continue
-                    }
 
                     # Convert billing meter name to ARM SKU name
                     $cleanName = $md.meterName -replace '\s+(Low Priority|Spot)\s*$', ''
                     $cleanName = $cleanName.Trim() -replace '^Standard[\s_]+', ''
-                    if ($cleanName -match '^[A-Z]') {
-                        $vmSize = "Standard_$($cleanName -replace '\s+', '_')"
-                    }
-                    else { continue }
+                    if ($cleanName -notmatch '^[A-Z]') { continue }
+                    $vmSize = "Standard_$($cleanName -replace '\s+', '_')"
 
-                    if (-not $allPrices.ContainsKey($vmSize)) {
+                    # Initialize region bucket if needed
+                    if (-not $allRegionPrices.ContainsKey($normalizedRegion)) {
+                        $allRegionPrices[$normalizedRegion] = @{}
+                    }
+
+                    if (-not $allRegionPrices[$normalizedRegion].ContainsKey($vmSize)) {
                         $negotiatedRate = [double]$item.unitPrice
                         $retailRate = if ($md.pretaxStandardRate) { [double]$md.pretaxStandardRate } else { $null }
 
-                        $allPrices[$vmSize] = @{
+                        $allRegionPrices[$normalizedRegion][$vmSize] = @{
                             Hourly       = [math]::Round($negotiatedRate, 4)
                             Monthly      = [math]::Round($negotiatedRate * $HoursPerMonth, 2)
                             Currency     = $item.currencyCode
@@ -143,9 +133,10 @@ function Get-AzActualPricing {
                             IsNegotiated = $true
                         }
                         if ($retailRate -and $retailRate -gt 0) {
-                            $allPrices[$vmSize].RetailHourly = [math]::Round($retailRate, 4)
-                            $allPrices[$vmSize].DiscountPct  = [math]::Round((1 - ($negotiatedRate / $retailRate)) * 100, 1)
+                            $allRegionPrices[$normalizedRegion][$vmSize].RetailHourly = [math]::Round($retailRate, 4)
+                            $allRegionPrices[$normalizedRegion][$vmSize].DiscountPct  = [math]::Round((1 - ($negotiatedRate / $retailRate)) * 100, 1)
                         }
+                        $totalVmMeters++
                     }
                 }
             }
@@ -153,20 +144,26 @@ function Get-AzActualPricing {
             $psUrl = $psResponse.properties.nextLink
         } while ($psUrl -and $pageCount -lt $MaxPricesheetPages)
 
-        if ($allPrices.Count -gt 0) {
+        if ($totalVmMeters -gt 0) {
             $tier1Success = $true
-            Write-Host "  Tier 1 (Price Sheet): $($allPrices.Count) negotiated SKU prices for '$Region'" -ForegroundColor DarkGray
-            Write-Verbose "Tier 1 (Price Sheet): $totalItems items across $pageCount page(s), $($allPrices.Count) VM SKU prices for region '$armLocation'."
-            $sampleKeys = @($allPrices.Keys | Select-Object -First 5) -join ', '
-            Write-Verbose "  Sample SKU keys: $sampleKeys"
-            $sampleDiscount = ($allPrices.Values | Where-Object { $_.DiscountPct } | Select-Object -First 1)
+            # Cache the full scan — all subsequent calls for any region are served from here
+            $Caches.ActualPricing['AllRegions'] = $allRegionPrices
+            $locationSummary = ($allRegionPrices.GetEnumerator() | Sort-Object { $_.Value.Count } -Descending | ForEach-Object { "'$($_.Key)' ($($_.Value.Count))" }) -join ', '
+            Write-Host "  Tier 1 (Price Sheet): $totalVmMeters negotiated SKU prices across $($allRegionPrices.Count) region(s)" -ForegroundColor DarkGray
+            Write-Verbose "Tier 1 (Price Sheet): $totalItems items across $pageCount page(s), $totalVmMeters VM SKU prices."
+            Write-Verbose "  Regions: $locationSummary"
+            $sampleDiscount = $null
+            foreach ($rp in $allRegionPrices.Values) {
+                $sampleDiscount = $rp.Values | Where-Object { $_.DiscountPct } | Select-Object -First 1
+                if ($sampleDiscount) { break }
+            }
             if ($sampleDiscount) {
                 Write-Verbose "  Sample discount: $($sampleDiscount.DiscountPct)% off retail"
             }
         }
         else {
-            Write-Host "  Tier 1 (Price Sheet): no matches for '$Region' ($totalItems items scanned). Trying Tier 2..." -ForegroundColor DarkGray
-            Write-Verbose "Tier 1 (Price Sheet): $totalItems items across $pageCount page(s), 0 VM matches for region '$armLocation'. Falling through to Tier 2."
+            Write-Host "  Tier 1 (Price Sheet): no VM matches ($totalItems items across $pageCount pages). Trying Tier 2..." -ForegroundColor DarkGray
+            Write-Verbose "Tier 1 (Price Sheet): $totalItems items across $pageCount page(s), 0 VM matches. Falling through to Tier 2."
         }
     }
     catch {
@@ -181,13 +178,10 @@ function Get-AzActualPricing {
     # ── Tier 2: Cost Management Query API ──
     # Derives effective rate from actual usage. Covers deployed SKUs only.
     # Works for all billing types (EA, MCA, CSP, PAYG).
+    # Tier 2 is region-specific (filters by ResourceLocation) since Cost Management
+    # doesn't support unfiltered queries efficiently.
     if (-not $tier1Success) {
         try {
-            # Include all accepted region name variants in the location filter
-            # so gov cloud subscriptions match regardless of how Cost Management
-            # stores the location (ARM name vs mapped commercial name).
-            $locationValues = @($acceptedRegions | ForEach-Object { $_ })
-
             $queryBody = @{
                 type      = 'ActualCost'
                 timeframe = 'MonthToDate'
@@ -198,10 +192,7 @@ function Get-AzActualPricing {
                         UsageQuantity = @{ name = 'UsageQuantity'; function = 'Sum' }
                     }
                     filter = @{
-                        and = @(
-                            @{ dimensions = @{ name = 'MeterCategory';    operator = 'In'; values = @('Virtual Machines') } }
-                            @{ dimensions = @{ name = 'ResourceLocation'; operator = 'In'; values = $locationValues } }
-                        )
+                        dimensions = @{ name = 'MeterCategory'; operator = 'In'; values = @('Virtual Machines') }
                     }
                     grouping = @(
                         @{ type = 'Dimension'; name = 'MeterSubcategory' }
@@ -248,8 +239,12 @@ function Get-AzActualPricing {
                 }
                 else { continue }
 
-                if (-not $allPrices.ContainsKey($vmSize)) {
-                    $allPrices[$vmSize] = @{
+                # Tier 2 doesn't provide location per row — store under the requested region
+                if (-not $allRegionPrices.ContainsKey($armLocation)) {
+                    $allRegionPrices[$armLocation] = @{}
+                }
+                if (-not $allRegionPrices[$armLocation].ContainsKey($vmSize)) {
+                    $allRegionPrices[$armLocation][$vmSize] = @{
                         Hourly       = [math]::Round($hourlyRate, 4)
                         Monthly      = [math]::Round($hourlyRate * $HoursPerMonth, 2)
                         Currency     = $currency
@@ -259,8 +254,9 @@ function Get-AzActualPricing {
                 }
             }
 
-            Write-Host "  Tier 2 (Cost Query): $($allPrices.Count) SKU prices from $rowCount usage rows for '$Region'" -ForegroundColor DarkGray
-            Write-Verbose "Tier 2 (Cost Query): $rowCount usage rows, $($allPrices.Count) VM SKU prices for region '$armLocation'."
+            $tier2Count = if ($allRegionPrices[$armLocation]) { $allRegionPrices[$armLocation].Count } else { 0 }
+            Write-Host "  Tier 2 (Cost Query): $tier2Count SKU prices from $rowCount usage rows for '$Region'" -ForegroundColor DarkGray
+            Write-Verbose "Tier 2 (Cost Query): $rowCount usage rows, $tier2Count VM SKU prices for region '$armLocation'."
         }
         catch {
             $errorMsg = $_.Exception.Message
@@ -300,6 +296,6 @@ function Get-AzActualPricing {
     $headers['Authorization'] = $null
     $token = $null
 
-    $Caches.ActualPricing[$cacheKey] = $allPrices
-    return $allPrices
+    $regionPrices = if ($allRegionPrices.ContainsKey($armLocation)) { $allRegionPrices[$armLocation] } else { @{} }
+    return $regionPrices
 }
