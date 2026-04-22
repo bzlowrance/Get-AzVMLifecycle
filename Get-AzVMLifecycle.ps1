@@ -3691,20 +3691,33 @@ if ($FetchPricing) {
 
     if ($actualPricingSuccess -and $script:RunContext.RegionPricing.Count -gt 0) {
         $script:RunContext.UsingActualPricing = $true
-        # Backfill with retail pricing for SKUs not covered by negotiated rates
+        # Merge negotiated pricing into the retail structure so reservation/SP/spot data is preserved.
+        # Negotiated rates override retail Regular entries; all other pricing tiers come from retail.
         foreach ($regionCode in $Regions) {
             $retailResult = Get-AzVMPricing -Region $regionCode -MaxRetries $MaxRetries -HoursPerMonth $HoursPerMonth -AzureEndpoints $script:AzureEndpoints -TargetEnvironment $script:TargetEnvironment -Caches $script:RunContext.Caches
             if ($retailResult -is [array]) { $retailResult = $retailResult[0] }
             $retailMap = Get-RegularPricingMap -PricingContainer $retailResult
             $negotiatedMap = $script:RunContext.RegionPricing[$regionCode]
-            $backfillCount = 0
+            # Start with retail Regular map, overlay negotiated prices on top
+            $mergedRegular = @{}
             foreach ($skuName in $retailMap.Keys) {
-                if (-not $negotiatedMap.ContainsKey($skuName)) {
-                    $negotiatedMap[$skuName] = $retailMap[$skuName]
-                    $backfillCount++
-                }
+                $mergedRegular[$skuName] = $retailMap[$skuName]
             }
-            Write-Verbose "Retail backfill for '$regionCode': $backfillCount SKUs added (negotiated: $($negotiatedMap.Count - $backfillCount), total: $($negotiatedMap.Count))"
+            $negotiatedCount = 0
+            foreach ($skuName in $negotiatedMap.Keys) {
+                $mergedRegular[$skuName] = $negotiatedMap[$skuName]
+                $negotiatedCount++
+            }
+            # Store as structured container so Spot/Reservation/SavingsPlan maps work
+            $script:RunContext.RegionPricing[$regionCode] = [ordered]@{
+                Regular        = $mergedRegular
+                Spot           = if ($retailResult.Spot) { $retailResult.Spot } else { @{} }
+                SavingsPlan1Yr = if ($retailResult.SavingsPlan1Yr) { $retailResult.SavingsPlan1Yr } else { @{} }
+                SavingsPlan3Yr = if ($retailResult.SavingsPlan3Yr) { $retailResult.SavingsPlan3Yr } else { @{} }
+                Reservation1Yr = if ($retailResult.Reservation1Yr) { $retailResult.Reservation1Yr } else { @{} }
+                Reservation3Yr = if ($retailResult.Reservation3Yr) { $retailResult.Reservation3Yr } else { @{} }
+            }
+            Write-Verbose "Pricing merge for '$regionCode': $negotiatedCount negotiated + $($mergedRegular.Count - $negotiatedCount) retail Regular, $($retailResult.Reservation1Yr.Count) RI-1yr, $($retailResult.Reservation3Yr.Count) RI-3yr"
         }
         Write-Host "$($Icons.Check) Using negotiated pricing (EA/MCA/CSP rates detected)" -ForegroundColor Green
     }
