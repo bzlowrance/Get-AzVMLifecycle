@@ -2893,6 +2893,22 @@ function Get-AzActualPricing {
     }
     $armUrl = $AzureEndpoints.ResourceManagerUrl
 
+    # Gov cloud EA/MCA enrollments often map gov meters to commercial region
+    # display names in the Price Sheet. Build a set of acceptable normalized
+    # region names so Tier 1 can match either the real or mapped name.
+    $govToCommercialMap = @{
+        'usgovarizona'  = 'ussouthcentral'
+        'usgovtexas'    = 'usnorthcentral'
+        'usgovvirginia' = 'useast'
+        'usdodcentral'  = 'uscentraleuap'
+        'usdodeast'     = 'useast2euap'
+    }
+    $acceptedRegions = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    [void]$acceptedRegions.Add($armLocation)
+    if ($govToCommercialMap.ContainsKey($armLocation)) {
+        [void]$acceptedRegions.Add($govToCommercialMap[$armLocation])
+    }
+
     $token = $null
     $headers = $null
     try {
@@ -2943,10 +2959,9 @@ function Get-AzActualPricing {
                     # Normalize meterLocation display name to ARM format
                     $meterLoc = $md.meterLocation
                     $normalizedRegion = ($meterLoc -replace '[\s-]', '').ToLower()
-                    if ($normalizedRegion -ne $armLocation) {
-                        # Log first mismatch per page to help diagnose region name mapping
+                    if (-not $acceptedRegions.Contains($normalizedRegion)) {
                         if (-not $loggedMismatch) {
-                            Write-Verbose "  Tier 1 region filter: meterLocation='$meterLoc' normalized='$normalizedRegion' vs target='$armLocation'"
+                            Write-Verbose "  Tier 1 region filter: meterLocation='$meterLoc' normalized='$normalizedRegion' not in accepted set ($($acceptedRegions -join ', '))"
                             $loggedMismatch = $true
                         }
                         continue
@@ -3010,6 +3025,11 @@ function Get-AzActualPricing {
     # Works for all billing types (EA, MCA, CSP, PAYG).
     if (-not $tier1Success) {
         try {
+            # Include all accepted region name variants in the location filter
+            # so gov cloud subscriptions match regardless of how Cost Management
+            # stores the location (ARM name vs mapped commercial name).
+            $locationValues = @($acceptedRegions | ForEach-Object { $_ })
+
             $queryBody = @{
                 type      = 'ActualCost'
                 timeframe = 'MonthToDate'
@@ -3022,7 +3042,7 @@ function Get-AzActualPricing {
                     filter = @{
                         and = @(
                             @{ dimensions = @{ name = 'MeterCategory';    operator = 'In'; values = @('Virtual Machines') } }
-                            @{ dimensions = @{ name = 'ResourceLocation'; operator = 'In'; values = @($armLocation) } }
+                            @{ dimensions = @{ name = 'ResourceLocation'; operator = 'In'; values = $locationValues } }
                         )
                     }
                     grouping = @(
