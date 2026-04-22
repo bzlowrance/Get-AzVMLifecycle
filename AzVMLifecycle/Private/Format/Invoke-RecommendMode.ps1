@@ -163,13 +163,6 @@ function Invoke-RecommendMode {
                 $spotPriceMo = $null
                 if ($FetchPricing -and $RunContext.RegionPricing[[string]$region]) {
                     $regionPriceData = $RunContext.RegionPricing[[string]$region]
-                    if (-not $script:_priceDiagLogged) {
-                        $script:_priceDiagLogged = $true
-                        $rpType = $regionPriceData.GetType().Name
-                        $rpCount = if ($regionPriceData -is [System.Collections.IDictionary]) { $regionPriceData.Count } else { 'N/A' }
-                        $rpKeys = if ($regionPriceData -is [System.Collections.IDictionary]) { @($regionPriceData.Keys | Select-Object -First 5) -join ', ' } else { 'not a dict' }
-                        Write-Host "  [pricing-diag] region='$region' type=$rpType count=$rpCount keys=[$rpKeys]" -ForegroundColor DarkYellow
-                    }
                     $regularPriceMap = Get-RegularPricingMap -PricingContainer $regionPriceData
                     $spotPriceMap = Get-SpotPricingMap -PricingContainer $regionPriceData
                     $skuPricing = $regularPriceMap[$sku.Name]
