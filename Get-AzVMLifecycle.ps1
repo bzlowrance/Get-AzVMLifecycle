@@ -2945,6 +2945,7 @@ function Get-AzActualPricing {
         $totalItems = 0
         $pageCount = 0
         $totalVmMeters = 0
+        $unitMeasureCounts = @{}
         do {
             $pageCount++
             $psResponse = Invoke-WithRetry -MaxRetries $MaxRetries -OperationName "Consumption Price Sheet (page $pageCount)" -ScriptBlock {
@@ -2968,13 +2969,28 @@ function Get-AzActualPricing {
                     if ($cleanName -notmatch '^[A-Z]') { continue }
                     $vmSize = "Standard_$($cleanName -replace '\s+', '_')"
 
+                    # Determine the hourly divisor from unitOfMeasure
+                    $unitOfMeasure = if ($item.unitOfMeasure) { $item.unitOfMeasure }
+                                     elseif ($md.unit) { $md.unit }
+                                     else { '1 Hour' }
+                    $unitKey = $unitOfMeasure.Trim()
+                    if ($unitMeasureCounts.ContainsKey($unitKey)) { $unitMeasureCounts[$unitKey]++ } else { $unitMeasureCounts[$unitKey] = 1 }
+
+                    $hourlyDivisor = switch -Regex ($unitKey) {
+                        '^\d+\s+Hour'  { if ($unitKey -match '^(\d+)') { [double]$Matches[1] } else { 1 } }
+                        'Month'        { $HoursPerMonth }
+                        'Day'          { 24 }
+                        default        { 1 }
+                    }
+
                     if (-not $allRegionPrices.ContainsKey($normalizedRegion)) {
                         $allRegionPrices[$normalizedRegion] = @{}
                     }
 
                     if (-not $allRegionPrices[$normalizedRegion].ContainsKey($vmSize)) {
-                        $negotiatedRate = [double]$item.unitPrice
-                        $retailRate = if ($md.pretaxStandardRate) { [double]$md.pretaxStandardRate } else { $null }
+                        $rawRate = [double]$item.unitPrice
+                        $negotiatedRate = $rawRate / $hourlyDivisor
+                        $retailRate = if ($md.pretaxStandardRate) { [double]$md.pretaxStandardRate / $hourlyDivisor } else { $null }
 
                         $allRegionPrices[$normalizedRegion][$vmSize] = @{
                             Hourly       = [math]::Round($negotiatedRate, 4)
@@ -3002,6 +3018,8 @@ function Get-AzActualPricing {
             Write-Host "  Tier 1 (Price Sheet): $totalVmMeters negotiated SKU prices across $($allRegionPrices.Count) region(s)" -ForegroundColor DarkGray
             Write-Verbose "Tier 1 (Price Sheet): $totalItems items across $pageCount page(s), $totalVmMeters VM SKU prices."
             Write-Verbose "  Regions: $locationSummary"
+            $unitSummary = ($unitMeasureCounts.GetEnumerator() | Sort-Object Value -Descending | ForEach-Object { "'$($_.Key)' ($($_.Value))" }) -join ', '
+            Write-Verbose "  unitOfMeasure values: $unitSummary"
             $sampleDiscount = $null
             foreach ($rp in $allRegionPrices.Values) {
                 $sampleDiscount = $rp.Values | Where-Object { $_.DiscountPct } | Select-Object -First 1
