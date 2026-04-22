@@ -2937,7 +2937,7 @@ function Get-AzActualPricing {
     # Only works for EA/MCA billing; returns 404 for PAYG/Sponsorship/MSDN.
     $tier1Success = $false
     $allRegionPrices = @{}
-    $MaxPricesheetPages = 100
+    $MaxPricesheetPages = 500
     try {
         $psUrl = "$armUrl/subscriptions/$SubscriptionId/providers/Microsoft.Consumption/pricesheets/default?api-version=2023-05-01&`$expand=properties/meterDetails&`$top=1000"
         Write-Verbose "Tier 1 (Price Sheet): calling $psUrl"

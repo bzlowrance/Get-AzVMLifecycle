@@ -96,7 +96,7 @@ function Get-AzActualPricing {
     # by their normalized meterLocation. No region filtering — we capture everything.
     $tier1Success = $false
     $allRegionPrices = @{}  # key = normalized location, value = hashtable of SKU → pricing
-    $MaxPricesheetPages = 100
+    $MaxPricesheetPages = 500
     try {
         $psUrl = "$armUrl/subscriptions/$SubscriptionId/providers/Microsoft.Consumption/pricesheets/default?api-version=2023-05-01&`$expand=properties/meterDetails&`$top=1000"
         Write-Verbose "Tier 1 (Price Sheet): calling $psUrl"
