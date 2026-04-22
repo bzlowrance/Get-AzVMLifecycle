@@ -2969,7 +2969,7 @@ function Get-AzActualPricing {
 
                     # Convert billing meter name to ARM SKU name
                     $cleanName = $md.meterName -replace '\s+(Low Priority|Spot)\s*$', ''
-                    $cleanName = $cleanName.Trim() -replace '^Standard\s+', ''
+                    $cleanName = $cleanName.Trim() -replace '^Standard[\s_]+', ''
                     if ($cleanName -match '^[A-Z]') {
                         $vmSize = "Standard_$($cleanName -replace '\s+', '_')"
                     }
@@ -3086,7 +3086,7 @@ function Get-AzActualPricing {
                 $hourlyRate = $cost / $quantity
 
                 $cleanName = $meterName -replace '\s+(Low Priority|Spot)\s*$', ''
-                $cleanName = $cleanName.Trim() -replace '^Standard\s+', ''
+                $cleanName = $cleanName.Trim() -replace '^Standard[\s_]+', ''
                 if ($cleanName -match '^[A-Z]') {
                     $vmSize = "Standard_$($cleanName -replace '\s+', '_')"
                 }
