@@ -38,12 +38,25 @@ function Get-AzActualPricing {
 
     $armLocation = $Region.ToLower() -replace '\s', ''
 
+    # Price Sheet meterLocation uses abbreviated names for gov/sovereign regions
+    # that don't match ARM region names. This map provides fallback lookups.
+    $armToMeterLocation = @{
+        'usgovarizona'  = 'usgovaz'
+        'usgovtexas'    = 'usgovtx'
+        'usgovvirginia' = 'usgov'
+        'usdodcentral'  = 'usdod'
+        'usdodeast'     = 'usdod'
+    }
+
     # EA/MCA negotiated rates are set at the enrollment level — identical across
     # all subscriptions. Page through the Price Sheet once, group all Linux VM
     # meters by meterLocation, and serve every subsequent region from cache.
     if ($Caches.ActualPricing.ContainsKey('AllRegions')) {
         $allRegionPrices = $Caches.ActualPricing['AllRegions']
-        $regionPrices = if ($allRegionPrices.ContainsKey($armLocation)) { $allRegionPrices[$armLocation] } else { @{} }
+        $lookupKey = if ($allRegionPrices.ContainsKey($armLocation)) { $armLocation }
+                     elseif ($armToMeterLocation.ContainsKey($armLocation)) { $armToMeterLocation[$armLocation] }
+                     else { $null }
+        $regionPrices = if ($lookupKey) { $allRegionPrices[$lookupKey] } else { @{} }
         if ($regionPrices.Count -gt 0) {
             Write-Host "  Tier 1 (Price Sheet): $($regionPrices.Count) negotiated SKU prices for '$Region' (cached)" -ForegroundColor DarkGray
         }
@@ -296,6 +309,9 @@ function Get-AzActualPricing {
     $headers['Authorization'] = $null
     $token = $null
 
-    $regionPrices = if ($allRegionPrices.ContainsKey($armLocation)) { $allRegionPrices[$armLocation] } else { @{} }
+    $lookupKey = if ($allRegionPrices.ContainsKey($armLocation)) { $armLocation }
+                 elseif ($armToMeterLocation.ContainsKey($armLocation)) { $armToMeterLocation[$armLocation] }
+                 else { $null }
+    $regionPrices = if ($lookupKey) { $allRegionPrices[$lookupKey] } else { @{} }
     return $regionPrices
 }
