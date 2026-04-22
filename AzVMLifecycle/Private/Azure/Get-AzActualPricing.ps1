@@ -48,6 +48,13 @@ function Get-AzActualPricing {
         'usdodeast'     = 'usdod'
     }
 
+    # ── Disk cache ──
+    # EA/MCA negotiated rates are fixed for the billing period. Cache the full
+    # Price Sheet to a local JSON file so subsequent runs skip the ~15-20 min API scan.
+    $PriceSheetCacheTTLDays = 30
+    $cacheDir = if ($env:TEMP) { $env:TEMP } else { [System.IO.Path]::GetTempPath() }
+    $cacheFile = Join-Path $cacheDir "AzVMLifecycle-PriceSheet-$SubscriptionId.json"
+
     # EA/MCA negotiated rates are set at the enrollment level — identical across
     # all subscriptions. Page through the Price Sheet once, group all Linux VM
     # meters by meterLocation, and serve every subsequent region from cache.
@@ -61,6 +68,46 @@ function Get-AzActualPricing {
             Write-Host "  Tier 1 (Price Sheet): $($regionPrices.Count) negotiated SKU prices for '$Region' (cached)" -ForegroundColor DarkGray
         }
         return $regionPrices
+    }
+
+    # Check disk cache before calling the API
+    if (Test-Path $cacheFile) {
+        try {
+            $cacheAge = (Get-Date) - (Get-Item $cacheFile).LastWriteTime
+            if ($cacheAge.TotalDays -le $PriceSheetCacheTTLDays) {
+                $ageDays = [math]::Floor($cacheAge.TotalDays)
+                $ageLabel = if ($ageDays -eq 0) { 'today' } elseif ($ageDays -eq 1) { '1 day old' } else { "$ageDays days old" }
+                Write-Host "  Loading cached discounted pricing data ($ageLabel)..." -ForegroundColor DarkGray
+                $cacheJson = Get-Content $cacheFile -Raw | ConvertFrom-Json
+                $allRegionPrices = @{}
+                foreach ($regionProp in $cacheJson.PSObject.Properties) {
+                    $regionHt = @{}
+                    foreach ($skuProp in $regionProp.Value.PSObject.Properties) {
+                        $skuHt = @{}
+                        foreach ($field in $skuProp.Value.PSObject.Properties) {
+                            $skuHt[$field.Name] = $field.Value
+                        }
+                        $regionHt[$skuProp.Name] = $skuHt
+                    }
+                    $allRegionPrices[$regionProp.Name] = $regionHt
+                }
+                $Caches.ActualPricing['AllRegions'] = $allRegionPrices
+                $totalSkus = ($allRegionPrices.Values | ForEach-Object { $_.Count } | Measure-Object -Sum).Sum
+                Write-Host "  Tier 1 (Price Sheet): $totalSkus negotiated SKU prices across $($allRegionPrices.Count) region(s) (from cache file)" -ForegroundColor DarkGray
+
+                $lookupKey = if ($allRegionPrices.ContainsKey($armLocation)) { $armLocation }
+                             elseif ($armToMeterLocation.ContainsKey($armLocation)) { $armToMeterLocation[$armLocation] }
+                             else { $null }
+                $regionPrices = if ($lookupKey) { $allRegionPrices[$lookupKey] } else { @{} }
+                return $regionPrices
+            }
+            else {
+                Write-Verbose "Price Sheet cache expired ($([math]::Floor($cacheAge.TotalDays)) days old, TTL=$PriceSheetCacheTTLDays days). Refreshing from API."
+            }
+        }
+        catch {
+            Write-Verbose "Price Sheet cache file unreadable, will refresh from API: $($_.Exception.Message)"
+        }
     }
 
     if (-not $AzureEndpoints) {
@@ -97,22 +144,46 @@ function Get-AzActualPricing {
     $tier1Success = $false
     $allRegionPrices = @{}  # key = normalized location, value = hashtable of SKU → pricing
     $MaxPricesheetPages = 500
+    $EstimatedPages = 500  # Based on observed EA price sheets (~484 pages typical)
     try {
         $psUrl = "$armUrl/subscriptions/$SubscriptionId/providers/Microsoft.Consumption/pricesheets/default?api-version=2023-05-01&`$expand=properties/meterDetails&`$top=1000"
         Write-Verbose "Tier 1 (Price Sheet): calling $psUrl"
+        Write-Host "  Initial download of discounted pricing data (~15-20 min, one-time)..." -ForegroundColor Cyan
+        Write-Host "  Subsequent runs will use cached data (valid $PriceSheetCacheTTLDays days)." -ForegroundColor DarkGray
 
         $totalItems = 0
         $pageCount = 0
         $totalVmMeters = 0
         $unitMeasureCounts = @{}  # Track unitOfMeasure values for diagnostics
+        $firstVmPage = 0         # Track page distribution of VM meters
+        $lastVmPage = 0
+        $vmMetersPerPage = @{}   # page number → VM meter count on that page
+        $scanStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
         do {
             $pageCount++
+            $pctComplete = [math]::Min(99, [math]::Floor(($pageCount / $EstimatedPages) * 100))
+            $elapsed = $scanStopwatch.Elapsed
+            $elapsedStr = '{0:mm\:ss}' -f $elapsed
+            if ($pageCount -gt 2) {
+                $secsPerPage = $elapsed.TotalSeconds / ($pageCount - 1)
+                $remainPages = [math]::Max(0, $EstimatedPages - $pageCount)
+                $etaSecs = [math]::Ceiling($secsPerPage * $remainPages)
+                $etaMin = [math]::Floor($etaSecs / 60)
+                $etaSec = $etaSecs % 60
+                $etaStr = if ($etaMin -gt 0) { "${etaMin}m ${etaSec}s remaining" } else { "${etaSec}s remaining" }
+            }
+            else {
+                $etaStr = 'estimating...'
+            }
+            Write-Progress -Activity "Downloading discounted pricing data" -Status "Page $pageCount — $totalVmMeters VM SKUs found — $elapsedStr elapsed — $etaStr" -PercentComplete $pctComplete
+
             $psResponse = Invoke-WithRetry -MaxRetries $MaxRetries -OperationName "Consumption Price Sheet (page $pageCount)" -ScriptBlock {
                 Invoke-RestMethod -Uri $psUrl -Method Get -Headers $headers -TimeoutSec 120
             }
 
             if ($psResponse.properties.pricesheets) {
                 $totalItems += $psResponse.properties.pricesheets.Count
+                $pageVmCount = 0
                 foreach ($item in $psResponse.properties.pricesheets) {
                     $md = $item.meterDetails
                     if (-not $md) { continue }
@@ -167,7 +238,13 @@ function Get-AzActualPricing {
                             $allRegionPrices[$normalizedRegion][$vmSize].DiscountPct  = [math]::Round((1 - ($negotiatedRate / $retailRate)) * 100, 1)
                         }
                         $totalVmMeters++
+                        $pageVmCount++
                     }
+                }
+                if ($pageVmCount -gt 0) {
+                    $vmMetersPerPage[$pageCount] = $pageVmCount
+                    if ($firstVmPage -eq 0) { $firstVmPage = $pageCount }
+                    $lastVmPage = $pageCount
                 }
             }
 
@@ -176,10 +253,24 @@ function Get-AzActualPricing {
 
         if ($totalVmMeters -gt 0) {
             $tier1Success = $true
+            $scanStopwatch.Stop()
+            Write-Progress -Activity "Downloading discounted pricing data" -Completed
+            $scanDuration = $scanStopwatch.Elapsed
+            $scanDurationStr = '{0:mm\:ss}' -f $scanDuration
             # Cache the full scan — all subsequent calls for any region are served from here
             $Caches.ActualPricing['AllRegions'] = $allRegionPrices
+
+            # Persist to disk so subsequent runs skip the API entirely
+            try {
+                $allRegionPrices | ConvertTo-Json -Depth 4 -Compress | Set-Content -Path $cacheFile -Encoding UTF8 -Force
+                Write-Verbose "Price Sheet cached to disk: $cacheFile"
+            }
+            catch {
+                Write-Verbose "Could not write Price Sheet cache file: $($_.Exception.Message)"
+            }
+
             $locationSummary = ($allRegionPrices.GetEnumerator() | Sort-Object { $_.Value.Count } -Descending | ForEach-Object { "'$($_.Key)' ($($_.Value.Count))" }) -join ', '
-            Write-Host "  Tier 1 (Price Sheet): $totalVmMeters negotiated SKU prices across $($allRegionPrices.Count) region(s)" -ForegroundColor DarkGray
+            Write-Host "  Tier 1 (Price Sheet): $totalVmMeters negotiated SKU prices across $($allRegionPrices.Count) region(s) in $scanDurationStr" -ForegroundColor DarkGray
             Write-Verbose "Tier 1 (Price Sheet): $totalItems items across $pageCount page(s), $totalVmMeters VM SKU prices."
             Write-Verbose "  Regions: $locationSummary"
             $unitSummary = ($unitMeasureCounts.GetEnumerator() | Sort-Object Value -Descending | ForEach-Object { "'$($_.Key)' ($($_.Value))" }) -join ', '
@@ -192,13 +283,22 @@ function Get-AzActualPricing {
             if ($sampleDiscount) {
                 Write-Verbose "  Sample discount: $($sampleDiscount.DiscountPct)% off retail"
             }
+            Write-Verbose "  VM meter page distribution: first=$firstVmPage, last=$lastVmPage of $pageCount pages"
+            if ($vmMetersPerPage.Count -gt 0) {
+                $pagesWithVMs = $vmMetersPerPage.Count
+                $pagesWithoutVMs = $pageCount - $pagesWithVMs
+                Write-Verbose "  Pages with VM meters: $pagesWithVMs/$pageCount ($pagesWithoutVMs empty pages)"
+            }
         }
         else {
+            Write-Progress -Activity "Downloading discounted pricing data" -Completed
+            $scanStopwatch.Stop()
             Write-Host "  Tier 1 (Price Sheet): no VM matches ($totalItems items across $pageCount pages). Trying Tier 2..." -ForegroundColor DarkGray
             Write-Verbose "Tier 1 (Price Sheet): $totalItems items across $pageCount page(s), 0 VM matches. Falling through to Tier 2."
         }
     }
     catch {
+        Write-Progress -Activity "Downloading discounted pricing data" -Completed
         $psError = $_
         $psStatus = $null
         if ($psError.Exception.Response) { $psStatus = [int]$psError.Exception.Response.StatusCode }
