@@ -2094,6 +2094,13 @@ function Invoke-RecommendMode {
                 $spotPriceMo = $null
                 if ($FetchPricing -and $RunContext.RegionPricing[[string]$region]) {
                     $regionPriceData = $RunContext.RegionPricing[[string]$region]
+                    if (-not $script:_priceDiagLogged) {
+                        $script:_priceDiagLogged = $true
+                        $rpType = $regionPriceData.GetType().Name
+                        $rpCount = if ($regionPriceData -is [System.Collections.IDictionary]) { $regionPriceData.Count } else { 'N/A' }
+                        $rpKeys = if ($regionPriceData -is [System.Collections.IDictionary]) { @($regionPriceData.Keys | Select-Object -First 5) -join ', ' } else { 'not a dict' }
+                        Write-Host "  [pricing-diag] region='$region' type=$rpType count=$rpCount keys=[$rpKeys]" -ForegroundColor DarkYellow
+                    }
                     $regularPriceMap = Get-RegularPricingMap -PricingContainer $regionPriceData
                     $spotPriceMap = Get-SpotPricingMap -PricingContainer $regionPriceData
                     $skuPricing = $regularPriceMap[$sku.Name]
@@ -3001,6 +3008,8 @@ function Get-AzActualPricing {
             $tier1Success = $true
             Write-Host "  Tier 1 (Price Sheet): $($allPrices.Count) negotiated SKU prices for '$Region'" -ForegroundColor DarkGray
             Write-Verbose "Tier 1 (Price Sheet): $totalItems items across $pageCount page(s), $($allPrices.Count) VM SKU prices for region '$armLocation'."
+            $sampleKeys = @($allPrices.Keys | Select-Object -First 5) -join ', '
+            Write-Verbose "  Sample SKU keys: $sampleKeys"
             $sampleDiscount = ($allPrices.Values | Where-Object { $_.DiscountPct } | Select-Object -First 1)
             if ($sampleDiscount) {
                 Write-Verbose "  Sample discount: $($sampleDiscount.DiscountPct)% off retail"

@@ -157,6 +157,8 @@ function Get-AzActualPricing {
             $tier1Success = $true
             Write-Host "  Tier 1 (Price Sheet): $($allPrices.Count) negotiated SKU prices for '$Region'" -ForegroundColor DarkGray
             Write-Verbose "Tier 1 (Price Sheet): $totalItems items across $pageCount page(s), $($allPrices.Count) VM SKU prices for region '$armLocation'."
+            $sampleKeys = @($allPrices.Keys | Select-Object -First 5) -join ', '
+            Write-Verbose "  Sample SKU keys: $sampleKeys"
             $sampleDiscount = ($allPrices.Values | Where-Object { $_.DiscountPct } | Select-Object -First 1)
             if ($sampleDiscount) {
                 Write-Verbose "  Sample discount: $($sampleDiscount.DiscountPct)% off retail"
