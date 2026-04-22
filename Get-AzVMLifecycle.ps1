@@ -2984,6 +2984,7 @@ function Get-AzActualPricing {
 
         if ($allPrices.Count -gt 0) {
             $tier1Success = $true
+            Write-Host "  Tier 1 (Price Sheet): $($allPrices.Count) negotiated SKU prices for '$Region'" -ForegroundColor DarkGray
             Write-Verbose "Tier 1 (Price Sheet): $totalItems items across $pageCount page(s), $($allPrices.Count) VM SKU prices for region '$armLocation'."
             $sampleDiscount = ($allPrices.Values | Where-Object { $_.DiscountPct } | Select-Object -First 1)
             if ($sampleDiscount) {
@@ -2991,6 +2992,7 @@ function Get-AzActualPricing {
             }
         }
         else {
+            Write-Host "  Tier 1 (Price Sheet): no matches for '$Region' ($totalItems items scanned). Trying Tier 2..." -ForegroundColor DarkGray
             Write-Verbose "Tier 1 (Price Sheet): $totalItems items across $pageCount page(s), 0 VM matches for region '$armLocation'. Falling through to Tier 2."
         }
     }
@@ -2999,6 +3001,7 @@ function Get-AzActualPricing {
         $psStatus = $null
         if ($psError.Exception.Response) { $psStatus = [int]$psError.Exception.Response.StatusCode }
         if (-not $psStatus -and $psError.Exception.Message -match '(\d{3})') { $psStatus = [int]$Matches[1] }
+        Write-Host "  Tier 1 (Price Sheet): failed$(if ($psStatus) { " (HTTP $psStatus)" }) — trying Tier 2..." -ForegroundColor DarkGray
         Write-Verbose "Tier 1 (Price Sheet) failed$(if ($psStatus) { " (HTTP $psStatus)" }): $($psError.Exception.Message). Falling through to Tier 2."
     }
 
@@ -3078,6 +3081,7 @@ function Get-AzActualPricing {
                 }
             }
 
+            Write-Host "  Tier 2 (Cost Query): $($allPrices.Count) SKU prices from $rowCount usage rows for '$Region'" -ForegroundColor DarkGray
             Write-Verbose "Tier 2 (Cost Query): $rowCount usage rows, $($allPrices.Count) VM SKU prices for region '$armLocation'."
         }
         catch {
@@ -3650,8 +3654,9 @@ if ($FetchPricing) {
     Write-Host "Checking for negotiated pricing (EA/MCA/CSP)..." -ForegroundColor DarkGray
 
     $actualPricingSuccess = $true
+    $verboseFlag = ($VerbosePreference -eq 'Continue')
     foreach ($regionCode in $Regions) {
-        $actualPrices = Get-AzActualPricing -SubscriptionId $TargetSubIds[0] -Region $regionCode -MaxRetries $MaxRetries -HoursPerMonth $HoursPerMonth -AzureEndpoints $script:AzureEndpoints -TargetEnvironment $script:TargetEnvironment -Caches $script:RunContext.Caches
+        $actualPrices = Get-AzActualPricing -SubscriptionId $TargetSubIds[0] -Region $regionCode -MaxRetries $MaxRetries -HoursPerMonth $HoursPerMonth -AzureEndpoints $script:AzureEndpoints -TargetEnvironment $script:TargetEnvironment -Caches $script:RunContext.Caches -Verbose:$verboseFlag
         if ($actualPrices -and $actualPrices.Count -gt 0) {
             if ($actualPrices -is [array]) { $actualPrices = $actualPrices[0] }
             $script:RunContext.RegionPricing[$regionCode] = $actualPrices
