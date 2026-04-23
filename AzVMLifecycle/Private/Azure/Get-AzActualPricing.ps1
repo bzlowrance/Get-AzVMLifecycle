@@ -262,11 +262,16 @@ function Get-AzActualPricing {
 
             # Persist to disk so subsequent runs skip the API entirely
             try {
-                $allRegionPrices | ConvertTo-Json -Depth 4 -Compress | Set-Content -Path $cacheFile -Encoding UTF8 -Force
-                Write-Verbose "Price Sheet cached to disk: $cacheFile"
+                $cacheJson = ConvertTo-Json -InputObject $allRegionPrices -Depth 4 -Compress
+                $tmpFile = "$cacheFile.tmp"
+                [System.IO.File]::WriteAllText($tmpFile, $cacheJson, [System.Text.Encoding]::UTF8)
+                Move-Item -Path $tmpFile -Destination $cacheFile -Force
+                $cacheSizeMB = [math]::Round((Get-Item $cacheFile).Length / 1MB, 1)
+                Write-Host "  Pricing data cached to disk (${cacheSizeMB}MB, valid $PriceSheetCacheTTLDays days): $cacheFile" -ForegroundColor DarkGray
             }
             catch {
-                Write-Verbose "Could not write Price Sheet cache file: $($_.Exception.Message)"
+                Write-Warning "Could not write Price Sheet cache file: $($_.Exception.Message)"
+                Write-Verbose "Cache path: $cacheFile"
             }
 
             $locationSummary = ($allRegionPrices.GetEnumerator() | Sort-Object { $_.Value.Count } -Descending | ForEach-Object { "'$($_.Key)' ($($_.Value.Count))" }) -join ', '
