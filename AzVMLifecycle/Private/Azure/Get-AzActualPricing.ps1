@@ -49,11 +49,13 @@ function Get-AzActualPricing {
     }
 
     # ── Disk cache ──
-    # EA/MCA negotiated rates are fixed for the billing period. Cache the full
-    # Price Sheet to a local JSON file so subsequent runs skip the ~15-20 min API scan.
+    # EA/MCA negotiated rates are enrollment-level (tenant-scoped). Cache by
+    # TenantId so all subscriptions in the same tenant share one cache file.
     $PriceSheetCacheTTLDays = 30
+    $tenantId = try { (Get-AzContext -ErrorAction SilentlyContinue).Tenant.Id } catch { $null }
+    $cacheKey = if ($tenantId) { $tenantId } else { $SubscriptionId }
     $cacheDir = if ($env:TEMP) { $env:TEMP } else { [System.IO.Path]::GetTempPath() }
-    $cacheFile = Join-Path $cacheDir "AzVMLifecycle-PriceSheet-$SubscriptionId.json"
+    $cacheFile = Join-Path $cacheDir "AzVMLifecycle-PriceSheet-$cacheKey.json"
 
     # EA/MCA negotiated rates are set at the enrollment level — identical across
     # all subscriptions. Page through the Price Sheet once, group all Linux VM
