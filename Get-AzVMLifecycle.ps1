@@ -2934,19 +2934,7 @@ function Get-AzActualPricing {
                 $ageDays = [math]::Floor($cacheAge.TotalDays)
                 $ageLabel = if ($ageDays -eq 0) { 'today' } elseif ($ageDays -eq 1) { '1 day old' } else { "$ageDays days old" }
                 Write-Host "  Loading cached discounted pricing data ($ageLabel)..." -ForegroundColor DarkGray
-                $cacheJson = Get-Content $cacheFile -Raw | ConvertFrom-Json
-                $allRegionPrices = @{}
-                foreach ($regionProp in $cacheJson.PSObject.Properties) {
-                    $regionHt = @{}
-                    foreach ($skuProp in $regionProp.Value.PSObject.Properties) {
-                        $skuHt = @{}
-                        foreach ($field in $skuProp.Value.PSObject.Properties) {
-                            $skuHt[$field.Name] = $field.Value
-                        }
-                        $regionHt[$skuProp.Name] = $skuHt
-                    }
-                    $allRegionPrices[$regionProp.Name] = $regionHt
-                }
+                $allRegionPrices = Get-Content $cacheFile -Raw | ConvertFrom-Json -AsHashtable
                 $Caches.ActualPricing['AllRegions'] = $allRegionPrices
                 $totalSkus = ($allRegionPrices.Values | ForEach-Object { $_.Count } | Measure-Object -Sum).Sum
                 Write-Host "  Tier 1 (Price Sheet): $totalSkus negotiated SKU prices across $($allRegionPrices.Count) region(s) (from cache file)" -ForegroundColor DarkGray
@@ -3046,6 +3034,7 @@ function Get-AzActualPricing {
 
                     $meterLoc = $md.meterLocation
                     $normalizedRegion = ($meterLoc -replace '[\s-]', '').ToLower()
+                    if (-not $normalizedRegion) { continue }
 
                     $cleanName = $md.meterName -replace '\s+(Low Priority|Spot)\s*$', ''
                     $cleanName = $cleanName.Trim() -replace '^Standard[\s_]+', ''
