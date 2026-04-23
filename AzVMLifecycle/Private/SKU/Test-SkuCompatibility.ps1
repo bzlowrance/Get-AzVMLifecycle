@@ -68,6 +68,11 @@ function Test-SkuCompatibility {
         $failures.Add("UltraSSD: target requires it, candidate lacks it")
     }
 
+    # GPU: if target has GPUs, candidate must also have GPUs
+    if ($Target.GPUCount -gt 0 -and ($Candidate.GPUCount -le 0 -or -not $Candidate.ContainsKey('GPUCount'))) {
+        $failures.Add("GPU: target has $($Target.GPUCount) GPU(s), candidate has none")
+    }
+
     return @{
         Compatible = ($failures.Count -eq 0)
         Failures   = @($failures)

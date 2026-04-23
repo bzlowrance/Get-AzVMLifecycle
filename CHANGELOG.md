@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-04-22
+
+### Fixed
+- **Azure Gov cloud pricing** — normalized meterRegion and ARM-to-meterLocation alias map for sovereign cloud regions (usgovarizona, usgovtexas, usgovvirginia, usdodcentral, usdodeast)
+- **Negotiated pricing pipeline** — meterDetails never populated and pagination missing; replaced broken Consumption Price Sheet flow with tiered strategy (Price Sheet primary + Cost Management Query API fallback)
+- **Price Sheet meter name normalization** — strip duplicate `Standard_` prefix and correct `unitOfMeasure` conversion to per-hour rates
+- **Quota fetch isolation** — separated quota retrieval from SKU scan to prevent data loss under GOV multi-region throttling; added sequential retry for 429 responses
+- **Savings Plan column handling** — omit SP columns from console/Excel output for sovereign tenants where SP is unsupported
+- **Region validation** — trust ARG/file-discovered regions during validation instead of rejecting valid sovereign regions
+- **Sovereign environment detection** — auto-detect AzureUSGovernment from Az context instead of requiring manual override
+- **Retail pricing endpoint** — use global `prices.azure.com` endpoint for all clouds
+- **RBAC diagnostics** — detailed error messages for negotiated pricing permission failures
+- **Pricing merge** — preserve reservation/spot/SP pricing when merging negotiated rates over retail; backfill retail for SKUs missing from Price Sheet
+- **GPU-aware recommendations** — N-series (GPU) VMs no longer get non-GPU replacements; hard compatibility gate ensures candidates must have GPUs when target has GPUs
+- **Price Sheet disk cache** — `ConvertFrom-Json -AsHashtable` fixes deserialization of cached pricing data; skip meters with empty meterLocation to prevent bad cache keys
+
+### Added
+- **Disk cache for Price Sheet** — cached negotiated pricing to `$env:TEMP` with 30-day TTL; eliminates ~22-minute API scan on repeat runs
+- **Progress bar** — page counter with elapsed time and ETA during Price Sheet download
+- **`-LogFile` parameter** — terminal output capture to file; auto-generates log file alongside export when not specified
+- **Pricing diagnostics** — verbose output for negotiated pricing data structures and page distribution analysis
+
 ## [2.0.0] - 2026-03-27
 
 ### Changed

@@ -236,10 +236,16 @@ param(
     [switch]$SubMap,
 
     [Parameter(Mandatory = $false, HelpMessage = "Add a 'Resource Group Map' sheet to the lifecycle XLSX showing VM counts grouped by resource group, subscription, region, and SKU.")]
-    [switch]$RGMap
+    [switch]$RGMap,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Path to a log file for capturing terminal output. If a directory is specified, a timestamped log file is created. If omitted, no log is written.")]
+    [string]$LogFile
 )
 
 $ProgressPreference = 'SilentlyContinue'  # Suppress progress bars for faster execution
+
+# Transcript logging is deferred until after export path is resolved
+$script:TranscriptStarted = $false
 
 
 if ($PSVersionTable.PSVersion.Major -lt 7) {
@@ -332,6 +338,8 @@ if ($InputFile) {
 
     # Auto-merge per-SKU regions into the -Region parameter so all needed regions get scanned
     $fileRegions = @($lifecycleEntries | Where-Object { $_.Region } | ForEach-Object { $_.Region } | Select-Object -Unique)
+    if (-not $script:TrustedRegions) { $script:TrustedRegions = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase) }
+    foreach ($r in $fileRegions) { [void]$script:TrustedRegions.Add($r) }
     if ($fileRegions.Count -gt 0) {
         if ($Region) {
             $mergedRegions = @($Region) + @($fileRegions) | Select-Object -Unique
@@ -467,6 +475,8 @@ if (-not $InputFile) {
 
     # Auto-merge discovered regions into -Region parameter
     $scanRegions = @($lifecycleEntries | ForEach-Object { $_.Region } | Select-Object -Unique)
+    $script:TrustedRegions = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($r in $scanRegions) { [void]$script:TrustedRegions.Add($r) }
     if ($scanRegions.Count -gt 0) {
         if ($Region) {
             $mergedRegions = @($Region) + @($scanRegions) | Select-Object -Unique
@@ -585,6 +595,34 @@ if ($lifecycleEntries -and $lifecycleEntries.Count -gt 0) {
     }
 }
 
+# Forward-looking version expansion: always scan newer generations of each deployed SKU family
+# Generates wildcard patterns for versions current+1 through ceiling so v6/v7/v8+ candidates
+# are discovered even when UpgradePath.json has no entry for the current generation.
+# Non-existent versions harmlessly return no SKUs from Get-AzComputeResourceSku.
+if ($lifecycleEntries -and $lifecycleEntries.Count -gt 0) {
+    $forwardPatterns = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($entry in $lifecycleEntries) {
+        $skuName = $entry.SKU
+        $baseLetter = $null
+        $vCPUStr = $null
+        if ($skuName -match '^Standard_([A-Z]+)[a-z]*(\d+)') {
+            $rawFamily = $Matches[1]
+            $vCPUStr = $Matches[2]
+            # Normalize: DS->D, GS->G (Premium SSD suffix = same family in newer gens)
+            $baseLetter = if ($rawFamily -cmatch '^([A-Z]+)S$' -and $rawFamily -notin 'NVS','NCS','NDS','HBS','HCS','HXS','FXS') { $Matches[1] } else { $rawFamily }
+        }
+        if (-not $baseLetter -or -not $vCPUStr) { continue }
+        $curVer = if ($skuName -match '_v(\d+)$') { [int]$Matches[1] } else { 1 }
+        for ($v = ($curVer + 1); $v -le $ForwardVersionCeiling; $v++) {
+            [void]$forwardPatterns.Add("Standard_${baseLetter}${vCPUStr}*_v${v}")
+        }
+    }
+    if ($forwardPatterns.Count -gt 0) {
+        $SkuFilter = @($SkuFilter) + @($forwardPatterns)
+        Write-Verbose "Lifecycle mode: added $($forwardPatterns.Count) forward-looking version patterns for scanning"
+    }
+}
+
 #region Configuration
 $ScriptVersion = "2.0.0"
 
@@ -622,6 +660,7 @@ $FamilyInfo = @{
     'NV' = @{ Purpose = 'GPU visualization'; Category = 'GPU' }
 }
 $MinRecommendationScoreDefault = 50
+$ForwardVersionCeiling = 10
 #endregion Constants
 # Runtime context for per-run state, outputs, and reusable caches
 $script:RunContext = [pscustomobject]@{
@@ -690,6 +729,23 @@ if ($Environment) {
     $script:TargetEnvironment = $Environment
 }
 
+# Auto-detect environment from Az context when not explicitly set
+if (-not $script:TargetEnvironment) {
+    try {
+        $autoCtx = Get-AzContext -ErrorAction SilentlyContinue
+        if ($autoCtx -and $autoCtx.Environment -and $autoCtx.Environment.Name) {
+            $script:TargetEnvironment = $autoCtx.Environment.Name
+            Write-Verbose "Auto-detected environment from Az context: $($script:TargetEnvironment)"
+        }
+        else {
+            $script:TargetEnvironment = 'AzureCloud'
+        }
+    }
+    catch {
+        $script:TargetEnvironment = 'AzureCloud'
+    }
+}
+
 # Detect execution environment (Azure Cloud Shell vs local)
 $isCloudShell = $env:CLOUD_SHELL -eq "true" -or (Test-Path "/home/system" -ErrorAction SilentlyContinue)
 $defaultExportPath = if ($isCloudShell) { "/home/system" } else { "C:\Temp\AzVMLifecycle" }
@@ -735,6 +791,36 @@ else {
 
 if ($AutoExport -and -not $ExportPath) {
     $ExportPath = $defaultExportPath
+}
+
+# Start transcript logging
+# If -LogFile is specified, use it; otherwise auto-generate in the export directory (or current directory)
+if (-not $LogFile) {
+    $logDir = if ($ExportPath) { $ExportPath } else { $PWD.Path }
+    $logTimestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    if ($InputFile) {
+        $logBase = [System.IO.Path]::GetFileNameWithoutExtension($InputFile)
+        $LogFile = Join-Path $logDir "${logBase}_Lifecycle_${logTimestamp}.log"
+    }
+    else {
+        $LogFile = Join-Path $logDir "AzVMLifecycle_${logTimestamp}.log"
+    }
+}
+elseif (Test-Path -LiteralPath $LogFile -PathType Container) {
+    $logTimestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $LogFile = Join-Path $LogFile "AzVMLifecycle_${logTimestamp}.log"
+}
+try {
+    $logFileDir = Split-Path -Path $LogFile -Parent
+    if ($logFileDir -and -not (Test-Path -LiteralPath $logFileDir)) {
+        New-Item -Path $logFileDir -ItemType Directory -Force | Out-Null
+    }
+    Start-Transcript -Path $LogFile -Append | Out-Null
+    $script:TranscriptStarted = $true
+    Write-Host "Logging to: $LogFile" -ForegroundColor DarkGray
+}
+catch {
+    Write-Warning "Failed to start transcript logging: $($_.Exception.Message)"
 }
 
 #endregion Configuration
@@ -956,26 +1042,10 @@ function Get-AzureEndpoints {
     # Ensure no trailing slash
     $armUrl = $armUrl.TrimEnd('/')
 
-    # Derive pricing API URL from the portal URL
-    # Commercial: portal.azure.com -> prices.azure.com
-    # Government: portal.azure.us -> prices.azure.us
-    # China: portal.azure.cn -> prices.azure.cn
-    $portalUrl = $AzEnvironment.ManagementPortalUrl
-    if ($portalUrl) {
-        # Replace only the 'portal' subdomain with 'prices' (more precise than global replace)
-        $pricingUrl = $portalUrl -replace '^(https?://)?portal\.', '${1}prices.'
-        $pricingUrl = $pricingUrl.TrimEnd('/')
-        $pricingApiUrl = "$pricingUrl/api/retail/prices"
-    }
-    else {
-        # Fallback based on known environment names
-        $pricingApiUrl = switch ($AzEnvironment.Name) {
-            'AzureUSGovernment' { 'https://prices.azure.us/api/retail/prices' }
-            'AzureChinaCloud' { 'https://prices.azure.cn/api/retail/prices' }
-            'AzureGermanCloud' { 'https://prices.microsoftazure.de/api/retail/prices' }
-            default { 'https://prices.azure.com/api/retail/prices' }
-        }
-    }
+    # Azure Retail Prices API is a single global endpoint (prices.azure.com) for all clouds.
+    # It serves Commercial, Government, and China pricing data via armRegionName filter.
+    # There are no sovereign-specific pricing API endpoints (prices.azure.us does not exist).
+    $pricingApiUrl = 'https://prices.azure.com/api/retail/prices'
 
     $endpoints = @{
         EnvironmentName    = $AzEnvironment.Name
@@ -1461,6 +1531,11 @@ function Test-SkuCompatibility {
         $failures.Add("UltraSSD: target requires it, candidate lacks it")
     }
 
+    # GPU: if target has GPUs, candidate must also have GPUs
+    if ($Target.GPUCount -gt 0 -and ($Candidate.GPUCount -le 0 -or -not $Candidate.ContainsKey('GPUCount'))) {
+        $failures.Add("GPU: target has $($Target.GPUCount) GPU(s), candidate has none")
+    }
+
     return @{
         Compatible = ($failures.Count -eq 0)
         Failures   = @($failures)
@@ -1473,9 +1548,9 @@ function Get-SkuSimilarityScore {
         Scores how similar a candidate SKU is to a target SKU profile.
     .DESCRIPTION
         Weighted scoring across 8 dimensions: vCPU (20), memory (20), family (18),
-        family version newness (12), architecture (10), premium IO (5), disk IOPS (8),
+        family version newness (15), architecture (10), premium IO (5), disk IOPS (8),
         data disk count (7). Max 100.
-        Family version newness strongly rewards the latest SKU generations (_v7 > _v6 > _v5)
+        Family version newness strongly rewards the latest SKU generations (_v9 > _v8 > _v7 > _v6)
         to prioritize lifecycle upgrades to the newest available hardware.
     #>
     param(
@@ -1518,20 +1593,22 @@ function Get-SkuSimilarityScore {
         }
     }
 
-    # Family version newness (12 points) — strongly rewards latest SKU generations
+    # Family version newness (15 points) — strongly rewards latest SKU generations
     $targetVer = if ($Target.FamilyVersion) { [int]$Target.FamilyVersion } else { 1 }
     $candidateVer = if ($Candidate.FamilyVersion) { [int]$Candidate.FamilyVersion } else { 1 }
 
     if ($Target.Family -eq $Candidate.Family) {
         if ($candidateVer -gt $targetVer) {
-            # Upgrade: base 8 + bonus for how new the candidate is
+            # Upgrade: base 8 + graduated bonus, newest generations score highest
             $verBonus = switch ($candidateVer) {
-                { $_ -ge 7 } { 4; break }
-                { $_ -ge 6 } { 3; break }
-                { $_ -ge 5 } { 2; break }
-                default      { 1 }
+                { $_ -ge 9 } { 7; break }
+                { $_ -ge 8 } { 6; break }
+                { $_ -ge 7 } { 5; break }
+                { $_ -ge 6 } { 4; break }
+                { $_ -ge 5 } { 3; break }
+                default      { 2 }
             }
-            $score += [math]::Min(8 + $verBonus, 12)
+            $score += [math]::Min(8 + $verBonus, 15)
         }
         elseif ($candidateVer -eq $targetVer) {
             $score += 5
@@ -1543,7 +1620,9 @@ function Get-SkuSimilarityScore {
     else {
         # Cross-family: graduated by candidate version
         $score += switch ($candidateVer) {
-            { $_ -ge 7 } { 10; break }
+            { $_ -ge 9 } { 13; break }
+            { $_ -ge 8 } { 12; break }
+            { $_ -ge 7 } { 11; break }
             { $_ -ge 6 } { 9; break }
             { $_ -ge 5 } { 7; break }
             { $_ -ge 4 } { 5; break }
@@ -1944,6 +2023,7 @@ function Invoke-RecommendMode {
         UncachedDiskIOPS         = $targetCaps.UncachedDiskIOPS
         UncachedDiskBytesPerSecond = $targetCaps.UncachedDiskBytesPerSecond
         EncryptionAtHostSupported = $targetCaps.EncryptionAtHostSupported
+        GPUCount                 = $targetCaps.GPUCount
     }
 
     # Score all candidate SKUs across all regions
@@ -1997,6 +2077,7 @@ function Invoke-RecommendMode {
                         UncachedDiskIOPS         = $caps.UncachedDiskIOPS
                         UncachedDiskBytesPerSecond = $caps.UncachedDiskBytesPerSecond
                         EncryptionAtHostSupported = $caps.EncryptionAtHostSupported
+                        GPUCount                 = $caps.GPUCount
                     }
                     if ($SkuProfileCache) {
                         $SkuProfileCache[$sku.Name] = @{ Profile = $candidateProfile; Caps = $caps; Processor = $candidateProcessor; DiskCode = $candidateDiskCode }
@@ -2320,6 +2401,7 @@ function Get-SkuCapabilities {
         UncachedDiskBytesPerSecond   = 0
         EncryptionAtHostSupported    = $false
         TrustedLaunchDisabled        = $false
+        GPUCount                     = 0
     }
 
     if ($Sku.Capabilities) {
@@ -2365,6 +2447,10 @@ function Get-SkuCapabilities {
                 }
                 'TrustedLaunchDisabled' {
                     $capabilities.TrustedLaunchDisabled = $cap.Value -eq 'True'
+                }
+                'GPUs' {
+                    $val = 0
+                    if ([int]::TryParse($cap.Value, [ref]$val)) { $capabilities.GPUCount = $val }
                 }
             }
         }
@@ -2771,13 +2857,18 @@ function Get-PlacementScores {
 function Get-AzActualPricing {
     <#
     .SYNOPSIS
-        Fetches actual negotiated pricing from Azure Cost Management API.
+        Retrieves negotiated VM pricing using a tiered API strategy.
     .DESCRIPTION
-        Retrieves your organization's actual negotiated rates including EA/MCA/CSP discounts.
-        Requires Billing Reader or Cost Management Reader role on the billing scope.
-    .NOTES
-        This function queries the Azure Cost Management Query API to get actual meter rates.
-        It requires appropriate RBAC permissions on the billing account/subscription.
+        Tier 1: Consumption Price Sheet API — returns negotiated unitPrice AND
+        retail pretaxStandardRate for ALL meters (deployed or not). Works for
+        EA and MCA billing types.
+
+        Tier 2: Cost Management Query API — derives effective hourly rate from
+        actual month-to-date usage (cost / hours). Works for ALL billing types
+        but only covers currently-deployed SKUs.
+
+        Returns a hashtable keyed by ARM SKU name (e.g. Standard_D2s_v3) with
+        Hourly, Monthly, Currency, Meter, and IsNegotiated fields.
     #>
     param(
         [Parameter(Mandatory = $true)]
@@ -2800,90 +2891,391 @@ function Get-AzActualPricing {
     if (-not $Caches.ActualPricing) {
         $Caches.ActualPricing = @{}
     }
-    $cacheKey = "$SubscriptionId-$Region"
-
-    if ($Caches.ActualPricing.ContainsKey($cacheKey)) {
-        return $Caches.ActualPricing[$cacheKey]
-    }
 
     $armLocation = $Region.ToLower() -replace '\s', ''
-    $allPrices = @{}
 
-    try {
-        # Get environment-specific endpoints (supports sovereign clouds)
-        if (-not $AzureEndpoints) {
-            $AzureEndpoints = Get-AzureEndpoints -EnvironmentName $TargetEnvironment
+    # Price Sheet meterLocation uses abbreviated names for gov/sovereign regions
+    # that don't match ARM region names. This map provides fallback lookups.
+    $armToMeterLocation = @{
+        'usgovarizona'  = 'usgovaz'
+        'usgovtexas'    = 'usgovtx'
+        'usgovvirginia' = 'usgov'
+        'usdodcentral'  = 'usdod'
+        'usdodeast'     = 'usdod'
+    }
+
+    # ── Disk cache ──
+    # EA/MCA negotiated rates are enrollment-level (tenant-scoped). Cache by
+    # TenantId so all subscriptions in the same tenant share one cache file.
+    $PriceSheetCacheTTLDays = 30
+    $tenantId = try { (Get-AzContext -ErrorAction SilentlyContinue).Tenant.Id } catch { $null }
+    $cacheKey = if ($tenantId) { $tenantId } else { $SubscriptionId }
+    $cacheDir = if ($env:TEMP) { $env:TEMP } else { [System.IO.Path]::GetTempPath() }
+    $cacheFile = Join-Path $cacheDir "AzVMLifecycle-PriceSheet-$cacheKey.json"
+
+    # EA/MCA negotiated rates are set at the enrollment level — identical across
+    # all subscriptions. Page through the Price Sheet once, group all Linux VM
+    # meters by meterLocation, and serve every subsequent region from cache.
+    if ($Caches.ActualPricing.ContainsKey('AllRegions')) {
+        $allRegionPrices = $Caches.ActualPricing['AllRegions']
+        $lookupKey = if ($allRegionPrices.ContainsKey($armLocation)) { $armLocation }
+                     elseif ($armToMeterLocation.ContainsKey($armLocation)) { $armToMeterLocation[$armLocation] }
+                     else { $null }
+        $regionPrices = if ($lookupKey) { $allRegionPrices[$lookupKey] } else { @{} }
+        if ($regionPrices.Count -gt 0) {
+            Write-Host "  Tier 1 (Price Sheet): $($regionPrices.Count) negotiated SKU prices for '$Region' (cached)" -ForegroundColor DarkGray
         }
-        $armUrl = $AzureEndpoints.ResourceManagerUrl
+        return $regionPrices
+    }
 
-        # Get access token for Azure Resource Manager (uses environment-specific URL)
+    # Check disk cache before calling the API
+    if (Test-Path $cacheFile) {
+        try {
+            $cacheAge = (Get-Date) - (Get-Item $cacheFile).LastWriteTime
+            if ($cacheAge.TotalDays -le $PriceSheetCacheTTLDays) {
+                $ageDays = [math]::Floor($cacheAge.TotalDays)
+                $ageLabel = if ($ageDays -eq 0) { 'today' } elseif ($ageDays -eq 1) { '1 day old' } else { "$ageDays days old" }
+                Write-Host "  Loading cached discounted pricing data ($ageLabel)..." -ForegroundColor DarkGray
+                $allRegionPrices = Get-Content $cacheFile -Raw | ConvertFrom-Json -AsHashtable
+                $Caches.ActualPricing['AllRegions'] = $allRegionPrices
+                $totalSkus = ($allRegionPrices.Values | ForEach-Object { $_.Count } | Measure-Object -Sum).Sum
+                Write-Host "  Tier 1 (Price Sheet): $totalSkus negotiated SKU prices across $($allRegionPrices.Count) region(s) (from cache file)" -ForegroundColor DarkGray
+
+                $lookupKey = if ($allRegionPrices.ContainsKey($armLocation)) { $armLocation }
+                             elseif ($armToMeterLocation.ContainsKey($armLocation)) { $armToMeterLocation[$armLocation] }
+                             else { $null }
+                $regionPrices = if ($lookupKey) { $allRegionPrices[$lookupKey] } else { @{} }
+                return $regionPrices
+            }
+            else {
+                Write-Verbose "Price Sheet cache expired ($([math]::Floor($cacheAge.TotalDays)) days old, TTL=$PriceSheetCacheTTLDays days). Refreshing from API."
+            }
+        }
+        catch {
+            Write-Verbose "Price Sheet cache file unreadable, will refresh from API: $($_.Exception.Message)"
+        }
+    }
+
+    if (-not $AzureEndpoints) {
+        $AzureEndpoints = Get-AzureEndpoints -EnvironmentName $TargetEnvironment
+    }
+    $armUrl = $AzureEndpoints.ResourceManagerUrl
+
+    $token = $null
+    $headers = $null
+    try {
         $token = (Get-AzAccessToken -ResourceUrl $armUrl -ErrorAction Stop).Token
         $headers = @{
             'Authorization' = "Bearer $token"
             'Content-Type'  = 'application/json'
         }
+    }
+    catch {
+        if (-not $Caches.NegotiatedPricingWarned) {
+            $Caches.NegotiatedPricingWarned = $true
+            Write-Warning "Cost Management: cannot obtain access token. Run: Connect-AzAccount"
+            Write-Warning "Falling back to retail pricing (public list prices without negotiated discounts)."
+        }
+        return $null
+    }
 
-        # Query Cost Management API for price sheet data
-        # Using the consumption price sheet endpoint with environment-specific ARM URL
-        # OData exact match (eq) instead of contains() to avoid forcing a full backend scan.
-        # URL-encode the filter so spaces and quotes are valid across all HTTP clients/environments.
-        $odataFilter = [uri]::EscapeDataString("meterCategory eq 'Virtual Machines'")
-        $apiUrl = "$armUrl/subscriptions/$SubscriptionId/providers/Microsoft.Consumption/pricesheets/default?api-version=2023-05-01&`$filter=$odataFilter"
+    # ── Tier 1: Consumption Price Sheet API ──
+    # Returns negotiated unitPrice for ALL meters (deployed or not).
+    # pretaxStandardRate = retail listing price (for discount calculation).
+    # Requires $expand=properties/meterDetails to populate category/region/meter fields.
+    # Only works for EA/MCA billing; returns 404 for PAYG/Sponsorship/MSDN.
+    $tier1Success = $false
+    $allRegionPrices = @{}
+    $MaxPricesheetPages = 500
+    $EstimatedPages = 500
+    try {
+        $psUrl = "$armUrl/subscriptions/$SubscriptionId/providers/Microsoft.Consumption/pricesheets/default?api-version=2023-05-01&`$expand=properties/meterDetails&`$top=1000"
+        Write-Verbose "Tier 1 (Price Sheet): calling $psUrl"
+        Write-Host "  Initial download of discounted pricing data (~15-20 min, one-time)..." -ForegroundColor Cyan
+        Write-Host "  Subsequent runs will use cached data (valid $PriceSheetCacheTTLDays days)." -ForegroundColor DarkGray
 
-        try {
-            $response = Invoke-WithRetry -MaxRetries $MaxRetries -OperationName "Cost Management API" -ScriptBlock {
-                Invoke-RestMethod -Uri $apiUrl -Method Get -Headers $headers -TimeoutSec 60
+        $totalItems = 0
+        $pageCount = 0
+        $totalVmMeters = 0
+        $unitMeasureCounts = @{}
+        $firstVmPage = 0
+        $lastVmPage = 0
+        $vmMetersPerPage = @{}
+        $scanStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+        do {
+            $pageCount++
+            $pctComplete = [math]::Min(99, [math]::Floor(($pageCount / $EstimatedPages) * 100))
+            $elapsed = $scanStopwatch.Elapsed
+            $elapsedStr = '{0:mm\:ss}' -f $elapsed
+            if ($pageCount -gt 2) {
+                $secsPerPage = $elapsed.TotalSeconds / ($pageCount - 1)
+                $remainPages = [math]::Max(0, $EstimatedPages - $pageCount)
+                $etaSecs = [math]::Ceiling($secsPerPage * $remainPages)
+                $etaMin = [math]::Floor($etaSecs / 60)
+                $etaSec = $etaSecs % 60
+                $etaStr = if ($etaMin -gt 0) { "${etaMin}m ${etaSec}s remaining" } else { "${etaSec}s remaining" }
             }
-        }
-        finally {
-            $headers['Authorization'] = $null
-            $token = $null
-        }
+            else {
+                $etaStr = 'estimating...'
+            }
+            Write-Progress -Activity "Downloading discounted pricing data" -Status "Page $pageCount — $totalVmMeters VM SKUs found — $elapsedStr elapsed — $etaStr" -PercentComplete $pctComplete
 
-        if ($response.properties.pricesheets) {
-            foreach ($item in $response.properties.pricesheets) {
-                # Match VM SKUs by meter name pattern
-                if ($item.meterCategory -eq 'Virtual Machines' -and
-                    $item.meterRegion -eq $armLocation -and
-                    $item.meterSubCategory -notmatch 'Windows') {
+            $psResponse = Invoke-WithRetry -MaxRetries $MaxRetries -OperationName "Consumption Price Sheet (page $pageCount)" -ScriptBlock {
+                Invoke-RestMethod -Uri $psUrl -Method Get -Headers $headers -TimeoutSec 120
+            }
 
-                    # Extract VM size from meter details
-                    $vmSize = $item.meterDetails.meterName -replace ' .*$', ''
-                    if ($vmSize -match '^[A-Z]') {
-                        $vmSize = "Standard_$vmSize"
+            if ($psResponse.properties.pricesheets) {
+                $totalItems += $psResponse.properties.pricesheets.Count
+                $pageVmCount = 0
+                foreach ($item in $psResponse.properties.pricesheets) {
+                    $md = $item.meterDetails
+                    if (-not $md) { continue }
+
+                    if ($md.meterCategory -ne 'Virtual Machines') { continue }
+                    if ($md.meterSubCategory -match 'Windows') { continue }
+
+                    $meterLoc = $md.meterLocation
+                    $normalizedRegion = ($meterLoc -replace '[\s-]', '').ToLower()
+                    if (-not $normalizedRegion) { continue }
+
+                    $cleanName = $md.meterName -replace '\s+(Low Priority|Spot)\s*$', ''
+                    $cleanName = $cleanName.Trim() -replace '^Standard[\s_]+', ''
+                    if ($cleanName -notmatch '^[A-Z]') { continue }
+                    $vmSize = "Standard_$($cleanName -replace '\s+', '_')"
+
+                    # Determine the hourly divisor from unitOfMeasure
+                    $unitOfMeasure = if ($item.unitOfMeasure) { $item.unitOfMeasure }
+                                     elseif ($md.unit) { $md.unit }
+                                     else { '1 Hour' }
+                    $unitKey = $unitOfMeasure.Trim()
+                    if ($unitMeasureCounts.ContainsKey($unitKey)) { $unitMeasureCounts[$unitKey]++ } else { $unitMeasureCounts[$unitKey] = 1 }
+
+                    $hourlyDivisor = switch -Regex ($unitKey) {
+                        '^\d+\s+Hour'  { if ($unitKey -match '^(\d+)') { [double]$Matches[1] } else { 1 } }
+                        'Month'        { $HoursPerMonth }
+                        'Day'          { 24 }
+                        default        { 1 }
                     }
 
-                    if ($vmSize -and -not $allPrices.ContainsKey($vmSize)) {
-                        $allPrices[$vmSize] = @{
-                            Hourly       = [math]::Round($item.unitPrice, 4)
-                            Monthly      = [math]::Round($item.unitPrice * $HoursPerMonth, 2)
+                    if (-not $allRegionPrices.ContainsKey($normalizedRegion)) {
+                        $allRegionPrices[$normalizedRegion] = @{}
+                    }
+
+                    if (-not $allRegionPrices[$normalizedRegion].ContainsKey($vmSize)) {
+                        $rawRate = [double]$item.unitPrice
+                        $negotiatedRate = $rawRate / $hourlyDivisor
+                        $retailRate = if ($md.pretaxStandardRate) { [double]$md.pretaxStandardRate / $hourlyDivisor } else { $null }
+
+                        $allRegionPrices[$normalizedRegion][$vmSize] = @{
+                            Hourly       = [math]::Round($negotiatedRate, 4)
+                            Monthly      = [math]::Round($negotiatedRate * $HoursPerMonth, 2)
                             Currency     = $item.currencyCode
-                            Meter        = $item.meterName
+                            Meter        = $md.meterName
                             IsNegotiated = $true
                         }
+                        if ($retailRate -and $retailRate -gt 0) {
+                            $allRegionPrices[$normalizedRegion][$vmSize].RetailHourly = [math]::Round($retailRate, 4)
+                            $allRegionPrices[$normalizedRegion][$vmSize].DiscountPct  = [math]::Round((1 - ($negotiatedRate / $retailRate)) * 100, 1)
+                        }
+                        $totalVmMeters++
+                        $pageVmCount++
+                    }
+                }
+                if ($pageVmCount -gt 0) {
+                    $vmMetersPerPage[$pageCount] = $pageVmCount
+                    if ($firstVmPage -eq 0) { $firstVmPage = $pageCount }
+                    $lastVmPage = $pageCount
+                }
+            }
+
+            $psUrl = $psResponse.properties.nextLink
+        } while ($psUrl -and $pageCount -lt $MaxPricesheetPages)
+
+        if ($totalVmMeters -gt 0) {
+            $tier1Success = $true
+            $scanStopwatch.Stop()
+            Write-Progress -Activity "Downloading discounted pricing data" -Completed
+            $scanDuration = $scanStopwatch.Elapsed
+            $scanDurationStr = '{0:mm\:ss}' -f $scanDuration
+            $Caches.ActualPricing['AllRegions'] = $allRegionPrices
+
+            # Persist to disk so subsequent runs skip the API entirely
+            try {
+                $cacheJson = ConvertTo-Json -InputObject $allRegionPrices -Depth 4 -Compress
+                $tmpFile = "$cacheFile.tmp"
+                [System.IO.File]::WriteAllText($tmpFile, $cacheJson, [System.Text.Encoding]::UTF8)
+                Move-Item -Path $tmpFile -Destination $cacheFile -Force
+                $cacheSizeMB = [math]::Round((Get-Item $cacheFile).Length / 1MB, 1)
+                Write-Host "  Pricing data cached to disk (${cacheSizeMB}MB, valid $PriceSheetCacheTTLDays days): $cacheFile" -ForegroundColor DarkGray
+            }
+            catch {
+                Write-Warning "Could not write Price Sheet cache file: $($_.Exception.Message)"
+                Write-Verbose "Cache path: $cacheFile"
+            }
+
+            $locationSummary = ($allRegionPrices.GetEnumerator() | Sort-Object { $_.Value.Count } -Descending | ForEach-Object { "'$($_.Key)' ($($_.Value.Count))" }) -join ', '
+            Write-Host "  Tier 1 (Price Sheet): $totalVmMeters negotiated SKU prices across $($allRegionPrices.Count) region(s) in $scanDurationStr" -ForegroundColor DarkGray
+            Write-Verbose "Tier 1 (Price Sheet): $totalItems items across $pageCount page(s), $totalVmMeters VM SKU prices."
+            Write-Verbose "  Regions: $locationSummary"
+            $unitSummary = ($unitMeasureCounts.GetEnumerator() | Sort-Object Value -Descending | ForEach-Object { "'$($_.Key)' ($($_.Value))" }) -join ', '
+            Write-Verbose "  unitOfMeasure values: $unitSummary"
+            $sampleDiscount = $null
+            foreach ($rp in $allRegionPrices.Values) {
+                $sampleDiscount = $rp.Values | Where-Object { $_.DiscountPct } | Select-Object -First 1
+                if ($sampleDiscount) { break }
+            }
+            if ($sampleDiscount) {
+                Write-Verbose "  Sample discount: $($sampleDiscount.DiscountPct)% off retail"
+            }
+            Write-Verbose "  VM meter page distribution: first=$firstVmPage, last=$lastVmPage of $pageCount pages"
+            if ($vmMetersPerPage.Count -gt 0) {
+                $pagesWithVMs = $vmMetersPerPage.Count
+                $pagesWithoutVMs = $pageCount - $pagesWithVMs
+                Write-Verbose "  Pages with VM meters: $pagesWithVMs/$pageCount ($pagesWithoutVMs empty pages)"
+            }
+        }
+        else {
+            Write-Progress -Activity "Downloading discounted pricing data" -Completed
+            $scanStopwatch.Stop()
+            Write-Host "  Tier 1 (Price Sheet): no VM matches ($totalItems items across $pageCount pages). Trying Tier 2..." -ForegroundColor DarkGray
+            Write-Verbose "Tier 1 (Price Sheet): $totalItems items across $pageCount page(s), 0 VM matches. Falling through to Tier 2."
+        }
+    }
+    catch {
+        Write-Progress -Activity "Downloading discounted pricing data" -Completed
+        $psError = $_
+        $psStatus = $null
+        if ($psError.Exception.Response) { $psStatus = [int]$psError.Exception.Response.StatusCode }
+        if (-not $psStatus -and $psError.Exception.Message -match '(\d{3})') { $psStatus = [int]$Matches[1] }
+        Write-Host "  Tier 1 (Price Sheet): failed$(if ($psStatus) { " (HTTP $psStatus)" }) — trying Tier 2..." -ForegroundColor DarkGray
+        Write-Verbose "Tier 1 (Price Sheet) failed$(if ($psStatus) { " (HTTP $psStatus)" }): $($psError.Exception.Message). Falling through to Tier 2."
+    }
+
+    # ── Tier 2: Cost Management Query API ──
+    # Derives effective rate from actual usage. Covers deployed SKUs only.
+    # Works for all billing types (EA, MCA, CSP, PAYG).
+    # Tier 2 is region-specific (filters by ResourceLocation) since Cost Management
+    # doesn't support unfiltered queries efficiently.
+    if (-not $tier1Success) {
+        try {
+            $queryBody = @{
+                type      = 'ActualCost'
+                timeframe = 'MonthToDate'
+                dataset   = @{
+                    granularity = 'None'
+                    aggregation = @{
+                        PreTaxCost    = @{ name = 'PreTaxCost';    function = 'Sum' }
+                        UsageQuantity = @{ name = 'UsageQuantity'; function = 'Sum' }
+                    }
+                    filter = @{
+                        dimensions = @{ name = 'MeterCategory'; operator = 'In'; values = @('Virtual Machines') }
+                    }
+                    grouping = @(
+                        @{ type = 'Dimension'; name = 'MeterSubcategory' }
+                        @{ type = 'Dimension'; name = 'Meter' }
+                    )
+                }
+            } | ConvertTo-Json -Depth 10
+
+            $queryUrl = "$armUrl/subscriptions/$SubscriptionId/providers/Microsoft.CostManagement/query?api-version=2023-11-01"
+
+            $cmResponse = Invoke-WithRetry -MaxRetries $MaxRetries -OperationName 'Cost Management Query' -ScriptBlock {
+                Invoke-RestMethod -Uri $queryUrl -Method Post -Headers $headers -Body $queryBody -ContentType 'application/json' -TimeoutSec 60
+            }
+
+            $colMap = @{}
+            for ($i = 0; $i -lt $cmResponse.properties.columns.Count; $i++) {
+                $colMap[$cmResponse.properties.columns[$i].name] = $i
+            }
+
+            $costIdx   = $colMap['PreTaxCost']
+            $qtyIdx    = $colMap['UsageQuantity']
+            $subCatIdx = $colMap['MeterSubcategory']
+            $meterIdx  = $colMap['Meter']
+            $currIdx   = if ($colMap.ContainsKey('Currency')) { $colMap['Currency'] } else { $null }
+
+            $rowCount = if ($cmResponse.properties.rows) { $cmResponse.properties.rows.Count } else { 0 }
+
+            foreach ($row in $cmResponse.properties.rows) {
+                $cost        = [double]$row[$costIdx]
+                $quantity    = [double]$row[$qtyIdx]
+                $subCategory = $row[$subCatIdx]
+                $meterName   = $row[$meterIdx]
+                $currency    = if ($null -ne $currIdx) { $row[$currIdx] } else { 'USD' }
+
+                if ($subCategory -match 'Windows') { continue }
+                if ($quantity -le 0 -or $cost -le 0) { continue }
+
+                $hourlyRate = $cost / $quantity
+
+                $cleanName = $meterName -replace '\s+(Low Priority|Spot)\s*$', ''
+                $cleanName = $cleanName.Trim() -replace '^Standard[\s_]+', ''
+                if ($cleanName -match '^[A-Z]') {
+                    $vmSize = "Standard_$($cleanName -replace '\s+', '_')"
+                }
+                else { continue }
+
+                if (-not $allRegionPrices.ContainsKey($armLocation)) {
+                    $allRegionPrices[$armLocation] = @{}
+                }
+                if (-not $allRegionPrices[$armLocation].ContainsKey($vmSize)) {
+                    $allRegionPrices[$armLocation][$vmSize] = @{
+                        Hourly       = [math]::Round($hourlyRate, 4)
+                        Monthly      = [math]::Round($hourlyRate * $HoursPerMonth, 2)
+                        Currency     = $currency
+                        Meter        = $meterName
+                        IsNegotiated = $true
                     }
                 }
             }
-        }
 
-        $Caches.ActualPricing[$cacheKey] = $allPrices
-        return $allPrices
+            $tier2Count = if ($allRegionPrices[$armLocation]) { $allRegionPrices[$armLocation].Count } else { 0 }
+            Write-Host "  Tier 2 (Cost Query): $tier2Count SKU prices from $rowCount usage rows for '$Region'" -ForegroundColor DarkGray
+            Write-Verbose "Tier 2 (Cost Query): $rowCount usage rows, $tier2Count VM SKU prices for region '$armLocation'."
+        }
+        catch {
+            $errorMsg = $_.Exception.Message
+            $statusCode = $null
+            if ($_.Exception.Response) { $statusCode = [int]$_.Exception.Response.StatusCode }
+            if (-not $statusCode -and $errorMsg -match '(\d{3})') { $statusCode = [int]$Matches[1] }
+
+            if (-not $Caches.NegotiatedPricingWarned) {
+                $Caches.NegotiatedPricingWarned = $true
+
+                switch ($statusCode) {
+                    401 {
+                        Write-Warning "Cost Management: authentication failed (HTTP 401). Run: Connect-AzAccount"
+                    }
+                    403 {
+                        Write-Warning "Cost Management: access denied (HTTP 403). Required RBAC (any one):"
+                        Write-Warning "  - Cost Management Reader  (scope: subscription)"
+                        Write-Warning "  - Reader                   (scope: subscription)"
+                        Write-Warning "  To assign:  New-AzRoleAssignment -SignInName <user@domain> -RoleDefinitionName 'Cost Management Reader' -Scope /subscriptions/$SubscriptionId"
+                    }
+                    {$_ -in 429, 503} {
+                        Write-Warning "Cost Management: throttled/unavailable (HTTP $statusCode). Retries exhausted."
+                    }
+                    default {
+                        Write-Warning "Cost Management failed$(if ($statusCode) { " (HTTP $statusCode)" }): $errorMsg"
+                    }
+                }
+                Write-Warning "Falling back to retail pricing (public list prices without negotiated discounts)."
+            }
+
+            $headers['Authorization'] = $null
+            $token = $null
+            return $null
+        }
     }
-    catch {
-        $errorMsg = $_.Exception.Message
-        if ($errorMsg -match '403|401|Forbidden|Unauthorized') {
-            Write-Warning "Cost Management API access denied. Requires Billing Reader or Cost Management Reader role."
-            Write-Warning "Falling back to retail pricing."
-        }
-        elseif ($errorMsg -match '404|NotFound') {
-            Write-Warning "Cost Management price sheet not available for this subscription type."
-            Write-Warning "This feature requires EA, MCA, or CSP billing. Falling back to retail pricing."
-        }
-        else {
-            Write-Verbose "Failed to fetch actual pricing: $errorMsg"
-        }
-        return $null  # Return null to signal fallback needed
-    }
+
+    $headers['Authorization'] = $null
+    $token = $null
+
+    $lookupKey = if ($allRegionPrices.ContainsKey($armLocation)) { $armLocation }
+                 elseif ($armToMeterLocation.ContainsKey($armLocation)) { $armToMeterLocation[$armLocation] }
+                 else { $null }
+    $regionPrices = if ($lookupKey) { $allRegionPrices[$lookupKey] } else { @{} }
+    return $regionPrices
 }
 
 
@@ -3056,6 +3448,11 @@ elseif ($null -eq $validRegions -or $validRegions.Count -eq 0) {
 else {
     foreach ($region in $Regions) {
         if ($validRegions -contains $region) {
+            $validatedRegions += $region
+        }
+        elseif ($script:TrustedRegions -and $script:TrustedRegions.Contains($region)) {
+            # Region discovered from ARG or input file — VMs are deployed there, trust it
+            Write-Verbose "Region '$region' not in locations API but trusted (discovered from deployed VMs)"
             $validatedRegions += $region
         }
         else {
@@ -3409,8 +3806,9 @@ if ($FetchPricing) {
     Write-Host "Checking for negotiated pricing (EA/MCA/CSP)..." -ForegroundColor DarkGray
 
     $actualPricingSuccess = $true
+    $verboseFlag = ($VerbosePreference -eq 'Continue')
     foreach ($regionCode in $Regions) {
-        $actualPrices = Get-AzActualPricing -SubscriptionId $TargetSubIds[0] -Region $regionCode -MaxRetries $MaxRetries -HoursPerMonth $HoursPerMonth -AzureEndpoints $script:AzureEndpoints -TargetEnvironment $script:TargetEnvironment -Caches $script:RunContext.Caches
+        $actualPrices = Get-AzActualPricing -SubscriptionId $TargetSubIds[0] -Region $regionCode -MaxRetries $MaxRetries -HoursPerMonth $HoursPerMonth -AzureEndpoints $script:AzureEndpoints -TargetEnvironment $script:TargetEnvironment -Caches $script:RunContext.Caches -Verbose:$verboseFlag
         if ($actualPrices -and $actualPrices.Count -gt 0) {
             if ($actualPrices -is [array]) { $actualPrices = $actualPrices[0] }
             $script:RunContext.RegionPricing[$regionCode] = $actualPrices
@@ -3423,16 +3821,47 @@ if ($FetchPricing) {
 
     if ($actualPricingSuccess -and $script:RunContext.RegionPricing.Count -gt 0) {
         $script:RunContext.UsingActualPricing = $true
+        # Merge negotiated pricing into the retail structure so reservation/SP/spot data is preserved.
+        # Negotiated rates override retail Regular entries; all other pricing tiers come from retail.
+        foreach ($regionCode in $Regions) {
+            $retailResult = Get-AzVMPricing -Region $regionCode -MaxRetries $MaxRetries -HoursPerMonth $HoursPerMonth -AzureEndpoints $script:AzureEndpoints -TargetEnvironment $script:TargetEnvironment -Caches $script:RunContext.Caches
+            if ($retailResult -is [array]) { $retailResult = $retailResult[0] }
+            $retailMap = Get-RegularPricingMap -PricingContainer $retailResult
+            $negotiatedMap = $script:RunContext.RegionPricing[$regionCode]
+            # Start with retail Regular map, overlay negotiated prices on top
+            $mergedRegular = @{}
+            foreach ($skuName in $retailMap.Keys) {
+                $mergedRegular[$skuName] = $retailMap[$skuName]
+            }
+            $negotiatedCount = 0
+            foreach ($skuName in $negotiatedMap.Keys) {
+                $mergedRegular[$skuName] = $negotiatedMap[$skuName]
+                $negotiatedCount++
+            }
+            # Store as structured container so Spot/Reservation/SavingsPlan maps work
+            $script:RunContext.RegionPricing[$regionCode] = [ordered]@{
+                Regular        = $mergedRegular
+                Spot           = if ($retailResult.Spot) { $retailResult.Spot } else { @{} }
+                SavingsPlan1Yr = if ($retailResult.SavingsPlan1Yr) { $retailResult.SavingsPlan1Yr } else { @{} }
+                SavingsPlan3Yr = if ($retailResult.SavingsPlan3Yr) { $retailResult.SavingsPlan3Yr } else { @{} }
+                Reservation1Yr = if ($retailResult.Reservation1Yr) { $retailResult.Reservation1Yr } else { @{} }
+                Reservation3Yr = if ($retailResult.Reservation3Yr) { $retailResult.Reservation3Yr } else { @{} }
+            }
+            Write-Verbose "Pricing merge for '$regionCode': $negotiatedCount negotiated + $($mergedRegular.Count - $negotiatedCount) retail Regular, $($retailResult.Reservation1Yr.Count) RI-1yr, $($retailResult.Reservation3Yr.Count) RI-3yr"
+        }
         Write-Host "$($Icons.Check) Using negotiated pricing (EA/MCA/CSP rates detected)" -ForegroundColor Green
     }
     else {
         # Fall back to retail pricing
-        Write-Host "No negotiated rates found, using retail pricing..." -ForegroundColor DarkGray
+        Write-Host "No negotiated rates found, using retail pricing. (Run with -Verbose for details)" -ForegroundColor DarkGray
+        Write-Verbose "Retail pricing API: $($script:AzureEndpoints.PricingApiUrl)"
         $script:RunContext.RegionPricing = @{}
         foreach ($regionCode in $Regions) {
             $pricingResult = Get-AzVMPricing -Region $regionCode -MaxRetries $MaxRetries -HoursPerMonth $HoursPerMonth -AzureEndpoints $script:AzureEndpoints -TargetEnvironment $script:TargetEnvironment -Caches $script:RunContext.Caches
             if ($pricingResult -is [array]) { $pricingResult = $pricingResult[0] }
             $script:RunContext.RegionPricing[$regionCode] = $pricingResult
+            $regularMap = Get-RegularPricingMap -PricingContainer $pricingResult
+            Write-Verbose "Retail pricing for '$regionCode': $($regularMap.Count) VM SKUs loaded"
         }
         Write-Host "$($Icons.Check) Using retail pricing (Linux pay-as-you-go)" -ForegroundColor DarkGray
     }
@@ -3513,16 +3942,23 @@ try {
                     }
                 }
 
-                $quotas = if ($skipQuota) { @() } else {
-                    & $retryCall -Action {
-                        Get-AzVMUsage -Location $region -ErrorAction Stop
-                    } -Retries $maxRetries
+                $quotas = @()
+                $quotaError = $null
+                if (-not $skipQuota) {
+                    try {
+                        $quotas = & $retryCall -Action {
+                            Get-AzVMUsage -Location $region -ErrorAction Stop
+                        } -Retries $maxRetries
+                    }
+                    catch {
+                        $quotaError = $_.Exception.Message
+                    }
                 }
 
-                @{ Region = [string]$region; Skus = $allSkus; Quotas = $quotas; Error = $null }
+                @{ Region = [string]$region; Skus = $allSkus; Quotas = $quotas; QuotaError = $quotaError; Error = $null }
             }
             catch {
-                @{ Region = [string]$region; Skus = @(); Quotas = @(); Error = $_.Exception.Message }
+                @{ Region = [string]$region; Skus = @(); Quotas = @(); QuotaError = $null; Error = $_.Exception.Message }
             }
         }
 
@@ -3580,16 +4016,23 @@ try {
                             }
                         }
 
-                        $quotas = if ($skipQuota) { @() } else {
-                            & $retryCall -Action {
-                                Get-AzVMUsage -Location $region -ErrorAction Stop
-                            } -Retries $maxRetries
+                        $quotas = @()
+                        $quotaError = $null
+                        if (-not $skipQuota) {
+                            try {
+                                $quotas = & $retryCall -Action {
+                                    Get-AzVMUsage -Location $region -ErrorAction Stop
+                                } -Retries $maxRetries
+                            }
+                            catch {
+                                $quotaError = $_.Exception.Message
+                            }
                         }
 
-                        @{ Region = [string]$region; Skus = $allSkus; Quotas = $quotas; Error = $null }
+                        @{ Region = [string]$region; Skus = $allSkus; Quotas = $quotas; QuotaError = $quotaError; Error = $null }
                     }
                     catch {
-                        @{ Region = [string]$region; Skus = @(); Quotas = @(); Error = $_.Exception.Message }
+                        @{ Region = [string]$region; Skus = @(); Quotas = @(); QuotaError = $null; Error = $_.Exception.Message }
                     }
                 } -ThrottleLimit $ParallelThrottleLimit
             }
@@ -3607,6 +4050,27 @@ try {
         }
 
         Write-Progress -Activity "Scanning Azure Regions" -Completed
+
+        # Sequential retry for quota data that failed during parallel scan (common in GOV due to tighter throttle limits)
+        if (-not $NoQuota) {
+            $quotaRetryRegions = @($regionData | Where-Object { -not $_.Error -and $_.QuotaError })
+            if ($quotaRetryRegions.Count -gt 0) {
+                Write-Verbose "Retrying quota fetch sequentially for $($quotaRetryRegions.Count) region(s) that failed during parallel scan..."
+                foreach ($rd in $quotaRetryRegions) {
+                    try {
+                        $retryQuotas = Invoke-WithRetry -MaxRetries $MaxRetries -OperationName "Get-AzVMUsage ($($rd.Region) retry)" -ScriptBlock {
+                            Get-AzVMUsage -Location $rd.Region -ErrorAction Stop
+                        }
+                        $rd.Quotas = if ($retryQuotas) { @($retryQuotas) } else { @() }
+                        $rd.QuotaError = $null
+                        Write-Verbose "Quota retry succeeded for $($rd.Region): $($rd.Quotas.Count) families"
+                    }
+                    catch {
+                        Write-Verbose "Quota retry failed for $($rd.Region): $($_.Exception.Message)"
+                    }
+                }
+            }
+        }
 
         $scanElapsed = (Get-Date) - $scanStartTime
         Write-Host "[$subName] Scan complete in $([math]::Round($scanElapsed.TotalSeconds, 1))s" -ForegroundColor Green
@@ -3637,10 +4101,17 @@ if ($lifecycleEntries.Count -gt 0) {
         foreach ($rd in $subData.RegionData) {
             if ($rd.Error) { continue }
             $regionKey = [string]$rd.Region
+            if ($rd.QuotaError) {
+                Write-Warning "Quota data unavailable for region '$regionKey': $($rd.QuotaError)"
+            }
+            elseif (-not $rd.Quotas -or @($rd.Quotas).Count -eq 0) {
+                Write-Warning "Quota API returned no data for region '$regionKey'. Quota columns will show '-' for VMs deployed here."
+            }
             if (-not $lcQuotaIndex.ContainsKey($regionKey)) {
                 $qLookup = @{}
                 foreach ($q in $rd.Quotas) { $qLookup[$q.Name.Value] = $q }
                 $lcQuotaIndex[$regionKey] = $qLookup
+                Write-Verbose "Quota index for '$regionKey': $($qLookup.Count) families loaded"
             }
             foreach ($sku in $rd.Skus) {
                 $skuRegionKey = "$($sku.Name)|$regionKey"
@@ -3957,12 +4428,18 @@ if ($lifecycleEntries.Count -gt 0) {
                 }
             }
 
+            # Detect sovereign/GOV regions where Savings Plans are not supported
+            $isSovereignRegion = $script:TargetEnvironment -in @('AzureUSGovernment', 'AzureChinaCloud', 'AzureGermanCloud') -or
+                ($deployedRegion -and $deployedRegion -match '^(usgov|usdod|usnat|ussec|china|germany)')
+
             # Look up savings plan and reservation pricing maps for this region
             $sp1YrMap = @{}; $sp3YrMap = @{}; $ri1YrMap = @{}; $ri3YrMap = @{}
             if ($RateOptimization -and $FetchPricing -and $deployedRegion -and $script:RunContext.RegionPricing[$deployedRegion]) {
                 $regionContainer = $script:RunContext.RegionPricing[$deployedRegion]
-                $sp1YrMap = Get-SavingsPlanPricingMap -PricingContainer $regionContainer -Term '1Yr'
-                $sp3YrMap = Get-SavingsPlanPricingMap -PricingContainer $regionContainer -Term '3Yr'
+                if (-not $isSovereignRegion) {
+                    $sp1YrMap = Get-SavingsPlanPricingMap -PricingContainer $regionContainer -Term '1Yr'
+                    $sp3YrMap = Get-SavingsPlanPricingMap -PricingContainer $regionContainer -Term '3Yr'
+                }
                 $ri1YrMap = Get-ReservationPricingMap -PricingContainer $regionContainer -Term '1Yr'
                 $ri3YrMap = Get-ReservationPricingMap -PricingContainer $regionContainer -Term '3Yr'
             }
@@ -3992,8 +4469,8 @@ if ($lifecycleEntries.Count -gt 0) {
                     TotalPriceDiff   = '-'
                     PAYG1Yr          = '-'
                     PAYG3Yr          = '-'
-                    SP1YrSavings     = '-'
-                    SP3YrSavings     = '-'
+                    SP1YrSavings     = if ($isSovereignRegion) { 'N/A' } else { '-' }
+                    SP3YrSavings     = if ($isSovereignRegion) { 'N/A' } else { '-' }
                     RI1YrSavings     = '-'
                     RI3YrSavings     = '-'
                     AlternativeCount = 0
@@ -4041,14 +4518,18 @@ if ($lifecycleEntries.Count -gt 0) {
                     }
 
                     # Look up savings plan and reservation savings vs PAYG fleet total
-                    $sp1YrSavingsStr = '-'; $sp3YrSavingsStr = '-'; $ri1YrSavingsStr = '-'; $ri3YrSavingsStr = '-'
+                    $sp1YrSavingsStr = if ($isSovereignRegion) { 'N/A' } else { '-' }
+                    $sp3YrSavingsStr = if ($isSovereignRegion) { 'N/A' } else { '-' }
+                    $ri1YrSavingsStr = '-'; $ri3YrSavingsStr = '-'
                     if ($RateOptimization -and $FetchPricing -and $null -ne $rec.priceMo) {
                         $recPaygFleet1Yr = [double]$rec.priceMo * 12 * $entryQty
                         $recPaygFleet3Yr = [double]$rec.priceMo * 36 * $entryQty
-                        $sp1Entry = $sp1YrMap[$rec.sku]
-                        if ($sp1Entry) { $sp1Fleet = [double]$sp1Entry.Monthly * 12 * $entryQty; $sp1Savings = $recPaygFleet1Yr - $sp1Fleet; $sp1YrSavingsStr = '$' + $sp1Savings.ToString('N0') }
-                        $sp3Entry = $sp3YrMap[$rec.sku]
-                        if ($sp3Entry) { $sp3Fleet = [double]$sp3Entry.Monthly * 36 * $entryQty; $sp3Savings = $recPaygFleet3Yr - $sp3Fleet; $sp3YrSavingsStr = '$' + $sp3Savings.ToString('N0') }
+                        if (-not $isSovereignRegion) {
+                            $sp1Entry = $sp1YrMap[$rec.sku]
+                            if ($sp1Entry) { $sp1Fleet = [double]$sp1Entry.Monthly * 12 * $entryQty; $sp1Savings = $recPaygFleet1Yr - $sp1Fleet; $sp1YrSavingsStr = '$' + $sp1Savings.ToString('N0') }
+                            $sp3Entry = $sp3YrMap[$rec.sku]
+                            if ($sp3Entry) { $sp3Fleet = [double]$sp3Entry.Monthly * 36 * $entryQty; $sp3Savings = $recPaygFleet3Yr - $sp3Fleet; $sp3YrSavingsStr = '$' + $sp3Savings.ToString('N0') }
+                        }
                         $ri1Entry = $ri1YrMap[$rec.sku]
                         if ($ri1Entry) { $ri1Fleet = [double]$ri1Entry.Total * $entryQty; $ri1Savings = $recPaygFleet1Yr - $ri1Fleet; $ri1YrSavingsStr = '$' + $ri1Savings.ToString('N0') }
                         $ri3Entry = $ri3YrMap[$rec.sku]
@@ -4304,14 +4785,19 @@ if ($lifecycleEntries.Count -gt 0) {
 
             $lcSortedResults = $lifecycleResults | Sort-Object @{e={switch($_._ParentRisk){'High'{0}'Medium'{1}'Low'{2}default{3}}}}, _ParentSKU, _GroupSeq, _RowSeq
 
-            # SP/RI columns included only with -RateOptimization flag
+            # Detect sovereign/GOV tenant — all SP values are N/A, so omit those columns entirely
+            $isSovereignTenant = $script:TargetEnvironment -in @('AzureUSGovernment', 'AzureChinaCloud', 'AzureGermanCloud')
+
+            # SP/RI columns included only with -RateOptimization flag (SP columns excluded for sovereign tenants)
             $rateOptCols = if ($RateOptimization) {
-                @(
-                    @{N='SP 1-Year Savings';E={$_.SP1YrSavings}},
-                    @{N='SP 3-Year Savings';E={$_.SP3YrSavings}},
-                    @{N='RI 1-Year Savings';E={$_.RI1YrSavings}},
-                    @{N='RI 3-Year Savings';E={$_.RI3YrSavings}}
-                )
+                $cols = @()
+                if (-not $isSovereignTenant) {
+                    $cols += @{N='SP 1-Year Savings';E={$_.SP1YrSavings}}
+                    $cols += @{N='SP 3-Year Savings';E={$_.SP3YrSavings}}
+                }
+                $cols += @{N='RI 1-Year Savings';E={$_.RI1YrSavings}}
+                $cols += @{N='RI 3-Year Savings';E={$_.RI3YrSavings}}
+                $cols
             } else { @() }
 
             # PAYG pricing columns included only with -ShowPricing
@@ -4665,4 +5151,7 @@ if ($lifecycleEntries.Count -gt 0) {
 }
 finally {
     [void](Restore-OriginalSubscriptionContext -OriginalSubscriptionId $initialSubscriptionId)
+    if ($script:TranscriptStarted) {
+        try { Stop-Transcript | Out-Null } catch { Write-Verbose "Transcript already stopped: $($_.Exception.Message)" }
+    }
 }
