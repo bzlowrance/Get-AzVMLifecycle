@@ -5152,6 +5152,6 @@ if ($lifecycleEntries.Count -gt 0) {
 finally {
     [void](Restore-OriginalSubscriptionContext -OriginalSubscriptionId $initialSubscriptionId)
     if ($script:TranscriptStarted) {
-        try { Stop-Transcript | Out-Null } catch { }
+        try { Stop-Transcript | Out-Null } catch { Write-Verbose "Transcript already stopped: $($_.Exception.Message)" }
     }
 }
