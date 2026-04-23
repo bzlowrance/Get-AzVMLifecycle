@@ -1531,6 +1531,11 @@ function Test-SkuCompatibility {
         $failures.Add("UltraSSD: target requires it, candidate lacks it")
     }
 
+    # GPU: if target has GPUs, candidate must also have GPUs
+    if ($Target.GPUCount -gt 0 -and ($Candidate.GPUCount -le 0 -or -not $Candidate.ContainsKey('GPUCount'))) {
+        $failures.Add("GPU: target has $($Target.GPUCount) GPU(s), candidate has none")
+    }
+
     return @{
         Compatible = ($failures.Count -eq 0)
         Failures   = @($failures)
@@ -2018,6 +2023,7 @@ function Invoke-RecommendMode {
         UncachedDiskIOPS         = $targetCaps.UncachedDiskIOPS
         UncachedDiskBytesPerSecond = $targetCaps.UncachedDiskBytesPerSecond
         EncryptionAtHostSupported = $targetCaps.EncryptionAtHostSupported
+        GPUCount                 = $targetCaps.GPUCount
     }
 
     # Score all candidate SKUs across all regions
@@ -2071,6 +2077,7 @@ function Invoke-RecommendMode {
                         UncachedDiskIOPS         = $caps.UncachedDiskIOPS
                         UncachedDiskBytesPerSecond = $caps.UncachedDiskBytesPerSecond
                         EncryptionAtHostSupported = $caps.EncryptionAtHostSupported
+                        GPUCount                 = $caps.GPUCount
                     }
                     if ($SkuProfileCache) {
                         $SkuProfileCache[$sku.Name] = @{ Profile = $candidateProfile; Caps = $caps; Processor = $candidateProcessor; DiskCode = $candidateDiskCode }
@@ -2394,6 +2401,7 @@ function Get-SkuCapabilities {
         UncachedDiskBytesPerSecond   = 0
         EncryptionAtHostSupported    = $false
         TrustedLaunchDisabled        = $false
+        GPUCount                     = 0
     }
 
     if ($Sku.Capabilities) {
@@ -2439,6 +2447,10 @@ function Get-SkuCapabilities {
                 }
                 'TrustedLaunchDisabled' {
                     $capabilities.TrustedLaunchDisabled = $cap.Value -eq 'True'
+                }
+                'GPUs' {
+                    $val = 0
+                    if ([int]::TryParse($cap.Value, [ref]$val)) { $capabilities.GPUCount = $val }
                 }
             }
         }
