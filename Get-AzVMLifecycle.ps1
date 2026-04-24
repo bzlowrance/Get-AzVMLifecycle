@@ -4056,6 +4056,29 @@ try {
 
         Write-Progress -Activity "Scanning Azure Regions" -Completed
 
+        # Retry failed regions sequentially (parallel pressure may have caused throttling)
+        $failedRegions = @($regionData | Where-Object { $_.Error })
+        if ($failedRegions.Count -gt 0) {
+            $regionNames = @($failedRegions | ForEach-Object { $_.Region }) -join ', '
+            Write-Warning "Retrying $($failedRegions.Count) failed region(s) sequentially: $regionNames"
+            $successfulData = [System.Collections.Generic.List[object]]::new()
+            foreach ($rd in $regionData) {
+                if (-not $rd.Error) { $successfulData.Add($rd) }
+            }
+            foreach ($failedRd in $failedRegions) {
+                Write-Verbose "Retry: $($failedRd.Region) (original error: $($failedRd.Error))"
+                $retryResult = & $scanRegionScript -region ([string]$failedRd.Region) -skuFilterCopy $SkuFilter -maxRetries $MaxRetries -skipQuota $NoQuota.IsPresent
+                if ($retryResult.Error) {
+                    Write-Warning "Region '$($failedRd.Region)' failed after retry: $($retryResult.Error) — data excluded from analysis"
+                }
+                else {
+                    Write-Host "  Retry succeeded: $($failedRd.Region) ($($retryResult.Skus.Count) SKUs, $($retryResult.Quotas.Count) quotas)" -ForegroundColor Green
+                }
+                $successfulData.Add($retryResult)
+            }
+            $regionData = $successfulData.ToArray()
+        }
+
         # Sequential retry for quota data that failed during parallel scan (common in GOV due to tighter throttle limits)
         if (-not $NoQuota) {
             $quotaRetryRegions = @($regionData | Where-Object { -not $_.Error -and $_.QuotaError })
