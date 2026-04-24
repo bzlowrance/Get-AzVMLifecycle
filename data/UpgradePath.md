@@ -1,6 +1,6 @@
 # Azure VM SKU Upgrade Paths
 
-> **Version:** 1.1.0 | **Last Updated:** 2026-07-21
+> **Version:** 1.1.0 | **Last Updated:** 2026-04-23
 >
 > **Source:** [Microsoft VM Migration Guides](https://learn.microsoft.com/azure/virtual-machines/sizes/migration-guides)
 >
@@ -33,9 +33,9 @@ move to B-series (burstable) or D-series (general purpose).
 
 ---
 
-### Dv1 — General Purpose *(Retired 2024-08-31)*
+### Dv1 — General Purpose *(Retiring 2028-05-01)*
 
-Original D-series (D1–D14, DS1–DS14).
+Original D-series (D1–D14, DS1–DS14) retiring May 2028.
 
 | Path | Target Series | Example (4 vCPU) | Requirements | Rationale |
 |------|--------------|-------------------|--------------|-----------|
@@ -45,7 +45,7 @@ Original D-series (D1–D14, DS1–DS14).
 
 ---
 
-### Dv2 / DSv2 — General Purpose *(Retiring 2027-03-31)*
+### Dv2 / DSv2 — General Purpose *(Retiring 2028-05-01)*
 
 Workhorse D-series v2 with Premium SSD support.
 
@@ -81,9 +81,9 @@ Memory-optimized (8 GiB per vCPU) for databases, caching, in-memory analytics.
 
 ---
 
-### Gv1 / GSv1 — Memory + Storage *(Retired 2025-03-31)*
+### Gv1 / GSv1 — Memory + Storage *(Retiring 2028-11-15)*
 
-G/GS-series retired. No G-series successor — move to E-series (memory) or M-series
+G/GS-series retiring November 2028. No G-series successor — move to E-series (memory) or M-series
 (large memory / SAP).
 
 | Path | Target Series | Example (8 vCPU) | Requirements | Rationale |
@@ -108,7 +108,7 @@ M-series v1 for SAP HANA and large-memory databases.
 
 ## Compute Optimized
 
-### Fv1 — Compute Optimized *(Retiring 2027-09-30)*
+### Fv1 — Compute Optimized *(Retiring 2028-11-15)*
 
 Fs-series (compute-optimized with Premium SSD).
 
@@ -121,9 +121,9 @@ Fs-series (compute-optimized with Premium SSD).
 
 ## Storage Optimized
 
-### Lv1 — Storage Optimized *(Retired 2024-08-31)*
+### Lv1 — Storage Optimized *(Retiring 2028-05-01)*
 
-Ls-series with local NVMe storage.
+Ls-series with local NVMe storage retiring May 2028.
 
 | Path | Target Series | Example (16 vCPU) | Requirements | Rationale |
 |------|--------------|-------------------|--------------|-----------|
@@ -197,9 +197,9 @@ Tesla P100 GPU retired.
 
 ---
 
-### NCv3 — GPU Compute *(Retiring 2025-09-30)*
+### NCv3 — GPU Compute *(Retired 2025-09-30)*
 
-Tesla V100 GPU retiring.
+Tesla V100 GPU retired.
 
 | Path | Target Series | Example | Requirements | Rationale |
 |------|--------------|---------|--------------|-----------|
@@ -240,20 +240,31 @@ Tesla M60 GPU retired.
 | Path | Target Series | Example | Requirements | Rationale |
 |------|--------------|---------|--------------|-----------|
 | **Drop-in** | NVadsA10v5 | Standard_NV6ads_A10_v5 | A10 GRID drivers, Gen2 recommended | A10 with fractional GPU, direct M60 replacement |
-| **Future-proof** | NVadsA10v5 | Standard_NV6ads_A10_v5 | A10 GRID drivers, Gen2 | Currently the latest NV-class series |
-| **Cost-optimized** | NVv4 | Standard_NV4as_v4 | AMD GPU drivers | AMD Radeon MI25 — lowest cost VDI |
+| **Future-proof** | NVadsV710v5 | Standard_NV6ads_V710_v5 | NVIDIA GPU drivers, Gen2 | Latest V710 GPU, best long-term VDI platform |
+| **Cost-optimized** | NVadsA10v5 | Standard_NV6ads_A10_v5 | A10 GRID drivers, Gen2 | NVIDIA A10 — good balance of cost and capabilities |
 
 ---
 
-### NVv3 — GPU Visualization *(Retiring 2025-09-30)*
+### NVv3 — GPU Visualization *(Retiring 2026-09-30)*
 
-M60 refresh retiring.
+M60 refresh retiring September 2026.
 
 | Path | Target Series | Example | Requirements | Rationale |
 |------|--------------|---------|--------------|-----------|
 | **Drop-in** | NVadsA10v5 | Standard_NV6ads_A10_v5 | A10 GRID drivers, Gen2 | A10 replaces M60 with better performance |
-| **Future-proof** | NVadsA10v5 | Standard_NV6ads_A10_v5 | A10 GRID drivers, Gen2 | Currently the latest NV-class series |
-| **Cost-optimized** | NVv4 | Standard_NV4as_v4 | AMD GPU drivers | Budget-friendly VDI and visualization |
+| **Future-proof** | NVadsV710v5 | Standard_NV6ads_V710_v5 | NVIDIA GPU drivers, Gen2 | Latest V710 GPU, best long-term VDI platform |
+| **Cost-optimized** | NVadsA10v5 | Standard_NV6ads_A10_v5 | A10 GRID drivers, Gen2 | NVIDIA A10 — good balance of cost and capabilities |
+
+---
+
+### NVv4 — GPU Visualization *(Retiring 2026-09-30)*
+
+NVv4 (AMD Radeon MI25) retiring September 2026. Move to NVadsA10v5 or NVadsV710v5.
+
+| Path | Target Series | Example | Requirements | Rationale |
+|------|--------------|---------|--------------|-----------|
+| **Drop-in** | NVadsA10v5 | Standard_NV6ads_A10_v5 | NVIDIA A10 GRID drivers, Gen2 | NVIDIA A10 with fractional GPU, direct Radeon replacement |
+| **Future-proof** | NVadsV710v5 | Standard_NV4ads_V710_v5 | NVIDIA GPU drivers, Gen2 | Latest V710 GPU, newest driver support |
 
 ---
 
@@ -263,9 +274,9 @@ These families are not retired or retiring but are classified as Medium Risk bec
 they are generation v1–v3 with newer successors available. Proactive migration avoids
 future forced transitions.
 
-### Av2 — Entry-Level General Purpose *(OldGen)*
+### Av2 — Entry-Level General Purpose *(Retiring 2028-11-15)*
 
-A-series v2 has no newer A-series successor. Workloads should migrate to D-series
+Av2/Amv2-series retiring November 2028. Workloads should migrate to D-series
 (general purpose) or B-series (burstable/dev-test).
 
 | Path | Target Series | Example (4 vCPU) | Requirements | Rationale |
@@ -276,9 +287,9 @@ A-series v2 has no newer A-series successor. Workloads should migrate to D-serie
 
 ---
 
-### Bv1 — Burstable *(OldGen)*
+### Bv1 — Burstable *(Retiring 2028-11-15)*
 
-Original B-series burstable VMs. Bsv2 offers better baseline performance and more
+B-series v1 burstable VMs retiring November 2028. Bsv2 offers better baseline performance and more
 size options.
 
 | Path | Target Series | Example (4 vCPU) | Requirements | Rationale |
@@ -289,9 +300,9 @@ size options.
 
 ---
 
-### Fv2 / Fsv2 — Compute Optimized *(OldGen)*
+### Fv2 / Fsv2 — Compute Optimized *(Retiring 2028-11-15)*
 
-Fsv2 is the current compute-optimized workhorse. Fasv6 is the latest F-family
+Fsv2 compute-optimized series retiring November 2028. Fasv6 is the latest F-family
 generation with AMD Genoa processors and NVMe support.
 
 | Path | Target Series | Example (4 vCPU) | Requirements | Rationale |
@@ -300,9 +311,9 @@ generation with AMD Genoa processors and NVMe support.
 
 ---
 
-### Lv2 / Lsv2 — Storage Optimized *(OldGen)*
+### Lv2 / Lsv2 — Storage Optimized *(Retiring 2028-11-15)*
 
-Lsv2 storage-optimized with NVMe local disks. Lsv3/Lasv3 offer more size options;
+Lsv2 storage-optimized series retiring November 2028. Lsv3/Lasv3 offer more size options;
 Lsv4 is the latest generation.
 
 | Path | Target Series | Example (16 vCPU) | Requirements | Rationale |
@@ -347,13 +358,13 @@ DCdsv3 with Intel TDX. DCadsv5 is the latest AMD-based option.
 
 ### NVv2 — GPU Visualization *(OldGen)*
 
-NVv2 with NVIDIA Tesla M60. NVv4 (AMD Radeon) and NVv5 (NVIDIA A10/V710) are newer.
+NVv2 with NVIDIA Tesla M60. NVadsA10v5 and NVadsV710v5 are newer options.
 
 | Path | Target Series | Example | Requirements | Rationale |
 |------|--------------|---------|--------------|-----------|
 | **Drop-in** | NVadsA10v5 | Standard_NV6ads_A10_v5 | NVIDIA GPU drivers | A10 GPU, broader size range, better GPU-to-vCPU ratio |
 | **Future-proof** | NVadsV710v5 | Standard_NV4ads_V710_v5 | NVIDIA GPU drivers | Latest V710 GPU, newest driver support |
-| **Cost-optimized** | NVasv4 | Standard_NV4as_v4 | AMD GPU drivers | AMD Radeon MI25, lowest cost for standard VDI |
+| **Cost-optimized** | NVadsA10v5 | Standard_NV6ads_A10_v5 | NVIDIA A10 GRID drivers | NVIDIA A10, good balance of cost and capabilities for VDI |
 
 ---
 

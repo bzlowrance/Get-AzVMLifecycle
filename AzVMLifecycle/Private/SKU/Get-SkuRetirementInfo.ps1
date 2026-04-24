@@ -3,7 +3,7 @@ function Get-SkuRetirementInfo {
 
     # Azure VM series retirement data from official Microsoft announcements
     # https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/retirement/retired-sizes-list
-    # Last verified: 2026-03-27
+    # Last verified: 2026-04-23
     $retirementLookup = @(
         # Already retired
         @{ Pattern = '^Standard_H\d+[a-z]*$';          Series = 'H';    RetireDate = '2024-09-28'; Status = 'Retired' }
@@ -18,14 +18,19 @@ function Get-SkuRetirementInfo {
         @{ Pattern = '^Standard_DS?\d+$';              Series = 'Dv1';  RetireDate = '2028-05-01'; Status = 'Retiring' }
         @{ Pattern = '^Standard_DS?\d+_v2(_Promo)?$';  Series = 'Dv2';  RetireDate = '2028-05-01'; Status = 'Retiring' }
         @{ Pattern = '^(Basic_A\d+|Standard_A\d+)$';  Series = 'Av1';  RetireDate = '2028-11-15'; Status = 'Retiring' }
+        @{ Pattern = '^Standard_A\d+m?_v2$';           Series = 'Av2';  RetireDate = '2028-11-15'; Status = 'Retiring' }
         @{ Pattern = '^Standard_B\d+[a-z]*$';          Series = 'Bv1';  RetireDate = '2028-11-15'; Status = 'Retiring' }
         @{ Pattern = '^Standard_GS?\d+$';              Series = 'G/GS'; RetireDate = '2028-11-15'; Status = 'Retiring' }
         @{ Pattern = '^Standard_F\d+s?$';              Series = 'Fsv1'; RetireDate = '2028-11-15'; Status = 'Retiring' }
+        @{ Pattern = '^Standard_F\d+s_v2$';            Series = 'Fsv2'; RetireDate = '2028-11-15'; Status = 'Retiring' }
         @{ Pattern = '^Standard_L\d+s$';               Series = 'Lsv1'; RetireDate = '2028-05-01'; Status = 'Retiring' }
         @{ Pattern = '^Standard_L\d+s_v2$';            Series = 'Lsv2'; RetireDate = '2028-11-15'; Status = 'Retiring' }
         @{ Pattern = '^Standard_ND\d+r?s_v2$';         Series = 'NDv2'; RetireDate = '2025-09-30'; Status = 'Retiring' }
         @{ Pattern = '^Standard_NV\d+s_v3$';           Series = 'NVv3'; RetireDate = '2026-09-30'; Status = 'Retiring' }
+        @{ Pattern = '^Standard_NV\d+as_v4$';          Series = 'NVv4'; RetireDate = '2026-09-30'; Status = 'Retiring' }
+        @{ Pattern = '^Standard_M192i[dm]*s_v2$';      Series = 'Mv2i'; RetireDate = '2027-03-31'; Status = 'Retiring' }
         @{ Pattern = '^Standard_M\d+(-\d+)?[a-z]*$';   Series = 'Mv1';  RetireDate = '2027-08-31'; Status = 'Retiring' }
+        @{ Pattern = '^Standard_NP\d+s$';              Series = 'NP';   RetireDate = '2027-05-31'; Status = 'Retiring' }
     )
 
     foreach ($entry in $retirementLookup) {
