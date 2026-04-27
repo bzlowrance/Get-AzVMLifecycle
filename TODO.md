@@ -9,41 +9,29 @@ verbatim.
 **Source repo path used for cross-references:** `C:\coderepo\Get-AzVMAvailability\Get-AzVMAvailability\`
 **This repo path:** `C:\coderepo\Get-AzVMLifecycle\`
 
-Last reviewed: 2026-04-27 against Availability branch `GOV_Price_fix` @ `38dedd4`.
+Last reviewed: 2026-04-27 against Availability branch `GOV_Price_fix` @ `HEAD` (post-`-AZ` zone columns).
 
 ---
 
 ## P0 — Pricing correctness (active investigation in Availability)
 
 ### 1. Negotiated RI / Savings Plan parsing from Consumption Price Sheet
-**Status in Availability:** under active investigation on branch `GOV_Price_fix`.
-Discovery probe `tools\Probe-PriceSheetRI.ps1` was added 2026-04-27 to determine
-exactly which `priceType` / `meterCategory` / `term` fields the Price Sheet API
-exposes for Reservation and Savings Plan meters.
+**Status in Availability (updated 2026-04-27):** Issue 4 was *partially* resolved on `GOV_Price_fix` by changing the pricing container to an ordered hashtable that **overlays** negotiated PAYG on `Regular` while preserving the retail `Reservation1Yr` / `Reservation3Yr` / `SavingsPlan1Yr` / `SavingsPlan3Yr` / `Spot` maps from Tier 2. RI / SP / Spot columns now populate in both commercial and sovereign clouds *as long as the retail Cost Management API returns data for the region*. True negotiated (EA/MCA) RI / SP rate harvesting from the price sheet is still pending — `tools\Probe-PriceSheetRI.ps1` was committed for that investigation.
 
-**Status in Lifecycle:** `Get-AzActualPricing` block at `Get-AzVMLifecycle.ps1:2549–2683`
-captures only PAYG `Regular` rates. Reservation 1Yr/3Yr come exclusively from
-the **retail** Cost Management API merge at L3866. This means:
+**Status in Lifecycle:** unchanged. `Get-AzActualPricing` block at `Get-AzVMLifecycle.ps1:2549–2683` still captures only PAYG `Regular`; RI rates come exclusively from retail merge at L3866. Two gaps:
 
-- Sovereign clouds (Gov / China / Germany) where retail RI data is sparse or
-  absent will show blank RI savings columns.
-- Even on commercial, EA/MCA-negotiated RI rates are not surfaced — the user
-  sees retail RI rates instead of their actual contract rates.
+- Sovereign-cloud regions where retail RI / SP / Spot data is sparse will still show blanks. The Availability fix doesn't help here \u2014 it preserves whatever retail returns, but if retail is empty the columns are still empty.
+- EA/MCA-negotiated RI / SP rates are never surfaced; users see retail RI rates instead of their contract rates.
 
-**What to port (after Availability finishes the investigation):**
-1. Add `tools\Probe-PriceSheetRI.ps1` (verbatim copy from Availability) so users
-   can dump their own price sheet schema for support tickets.
-2. Extend the price sheet parser in `Get-AzVMLifecycle.ps1:2549–2683` to:
-   - Bucket items by `priceType` (`Consumption` → Regular, `Reservation` → RI,
-     `SavingsPlan` → SP, `Spot` → Spot).
-   - Populate `$reservation1YrPrices` / `$reservation3YrPrices` /
-     `$savingsPlan1YrPrices` / `$savingsPlan3YrPrices` from the price sheet
-     when those rows exist.
-3. In the Tier-1/Tier-2 merge at L3843–L3869, prefer negotiated RI/SP from the
-   price sheet, falling back to retail RI/SP only when negotiated is absent.
+**What to port now (low-risk, immediate):**
+1. **Mirror the container shape fix.** Audit how Lifecycle's negotiated price sheet path constructs its pricing container; if it overwrites the retail container instead of overlaying, switch to an ordered-hashtable overlay so RI / SP / Spot maps survive even when Tier 1 succeeds. Reference: `Get-AzVMAvailability/Public/Get-AzVMAvailability.ps1` \u2014 search for the negotiated/retail merge that builds `[ordered]@{ Regular = $merged; Spot; SavingsPlan1Yr; SavingsPlan3Yr; Reservation1Yr; Reservation3Yr }`.
+2. **Add `tools\Probe-PriceSheetRI.ps1`** verbatim from Availability so users can dump their own price-sheet schema for support tickets.
 
-**Acceptance:** RI savings columns populate for Gov tenants without requiring
-a working retail Cost Management API call.
+**What to port later (after Availability finishes the price-sheet investigation):**
+1. Extend the price-sheet parser in `Get-AzVMLifecycle.ps1:2549\u20132683` to bucket items by `priceType` (`Consumption` \u2192 Regular, `Reservation` \u2192 RI, `SavingsPlan` \u2192 SP, `Spot` \u2192 Spot) and populate `$reservation1YrPrices` / `$reservation3YrPrices` / `$savingsPlan1YrPrices` / `$savingsPlan3YrPrices` directly.
+2. In the Tier-1/Tier-2 merge at L3843\u2013L3869, prefer negotiated RI / SP from the price sheet, falling back to retail RI / SP only when negotiated is absent.
+
+**Acceptance:** RI / SP savings columns populate in Gov tenants whenever retail returns data (immediate goal); negotiated RI rates surfaced when EA/MCA contract data is in the price sheet (deferred goal).
 
 ---
 
@@ -83,6 +71,28 @@ all keys for the SKU (ACU is a region-invariant capability).
 (`foreach ($rk in $lcSkuIndex.Keys)` cross-region walk).
 
 **Action:** **No port required.** Verified 2026-04-27.
+
+---
+
+### 4b. Availability Zone columns in lifecycle XLSX (`-AZ`)
+**Availability ref:**
+- Parameter declared in `AzVMAvailability/Public/Get-AzVMAvailability.ps1` (search `[switch]$AZ`) and auto-enabled in lifecycle mode (search `if (-not $AZ)` near the lifecycle defaults block).
+- ARG projection extended with `zones` so deployed-zone aggregation works in live mode (search `project vmSize, location, subscriptionId, resourceGroup, zones`).
+- File-mode reader extracts `Zone` / `Zones` / `AvailabilityZone` columns and normalizes to single-digit zone IDs.
+- SubMap / RGMap groups compute a `Zones` field as the union of distinct deployed zones; export emits a `Zones (Deployed)` column.
+- Lifecycle result rows compute `AltZones` via `Get-RestrictionDetails` + `Format-ZoneStatus` against `$lcSkuIndex["$($rec.sku)|$deployedRegion"]` (with cross-region fallback). `Lifecycle Summary`, `High Risk`, and `Medium Risk` Select-Object property arrays insert a `Zones (Supported)` column between `Alt Score` and `CPU +/-`, gated on `$AZ`.
+
+**Lifecycle status:** Not implemented. No zone columns on SubMap / RGMap or risk sheets today.
+
+**Action — port:**
+1. Add `[switch]$AZ` parameter; auto-enable in the lifecycle defaults block (mirror the Availability pattern: `if (-not $AZ) { $AZ = [switch]::new($true) }` next to the existing `ShowPricing` / `AutoExport` / `RateOptimization` defaults).
+2. Extend the ARG `Resources` projection with `zones`.
+3. Add a file-mode zone-column detector + normalizer (split on `,;\s`, keep single-digit zone IDs only).
+4. In the SubMap / RGMap aggregation, compute `$deployedZones = @($g.Group | %{ $_.zones } | ?{ $_ } | Select-Object -Unique | Sort-Object)` and store it on each map row; the export scriptblock emits `Zones (Deployed)` (or `Non-zonal` when empty).
+5. In the recommendation result emitter, compute `$altZonesStr` via `Get-RestrictionDetails` + `Format-ZoneStatus` with cross-region fallback; add `AltZones` to the result PSCustomObject.
+6. In the three property-array definitions (`$lcProps`, `$hrProps`, `$mrProps`), insert `@{N='Zones (Supported)';E={$_.AltZones}}` between `Alt Score` and `CPU +/-`, gated by an `$altZonesCol = if ($AZ) { @(...) } else { @() }` splat to keep the diff minimal.
+
+**Notes:** This is a pure additive change; no schema migration. Skill-test on a tenant with at least one zonal and one non-zonal SKU per scanned region.
 
 ---
 
