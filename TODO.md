@@ -9,7 +9,178 @@ verbatim.
 **Source repo path used for cross-references:** `C:\coderepo\Get-AzVMAvailability\Get-AzVMAvailability\`
 **This repo path:** `C:\coderepo\Get-AzVMLifecycle\`
 
-Last reviewed: 2026-04-27 against Availability branch `GOV_Price_fix` @ `HEAD` (post-`-AZ` zone columns).
+Last reviewed: 2026-04-28 against Availability branch `GOV_Price_fix` @ `87c8e6b` (post v2.2.0 release prep — retail-vs-retail SP/RI percent, advisory recs, paired-meter split, legend UX).
+
+---
+
+## P0 — Pricing correctness (recent fixes in Availability — port now)
+
+### 0a. Spot/Low-Priority meter exclusion + cache schema v2 bump
+**Availability ref:** commit `bff7bb3` "fix(pricing): exclude Spot/Low-Priority meters from negotiated PAYG cache". File: `AzVMAvailability/Private/Azure/Get-AzActualPricing.ps1`.
+
+**Bug:** v1 cache logic stripped a `" Spot"` / `" Low Priority"` suffix off `meterName` before bucketing, then accepted those rows as `Regular` PAYG meters. With first-write-wins semantics the Spot rate (≈1/8 the on-demand rate) overwrote the legitimate on-demand rate for SKUs whose Spot meter happened to be paged first. Real-world impact: `Standard_B16as_v2` showed ~$858/yr 1Y cost and a -$2,772 RI savings (negative savings impossible).
+
+**Fix in Availability:**
+1. Hard-skip any meter whose `meterName` or `meterSubCategory` matches `\b(Spot|Low Priority)\b` — no suffix-stripping, full discard with skip-reason counter.
+2. Cache filename bumped: `AzVMLifecycle-PriceSheet-<tenant>.json` → `AzVMLifecycle-PriceSheet-v2-<tenant>.json`. Old v1 file is auto-deleted on first run because v1 caches are poisoned.
+3. New skip-reason counters: `NoMeterDetails`, `NotVirtualMachine`, `WindowsSubcategory`, `SpotOrLowPriority`, `EmptyMeterLocation`, `UnparsableMeterName`, `ZeroOrNegativeUnitPrice` — emitted via `Write-Verbose` so `-Verbose` runs can audit Tier 1 hygiene.
+
+**Lifecycle status:** Same disk-cache convention is shared with Lifecycle (see "Items already at parity" below). If Lifecycle's parser also strips the Spot/Low-Priority suffix, **Lifecycle caches are equally poisoned and any user with a v1 cache file will keep getting wrong rates until invalidated.**
+
+**Action — port:**
+1. Audit Lifecycle's price-sheet parser (`Get-AzVMLifecycle.ps1:2549–2683`) for any `meterName -replace ...Spot.*` pattern. Replace with hard `continue` skip.
+2. Bump Lifecycle's cache filename to `…-v2-…` and add the same v1-cleanup `Get-ChildItem | Remove-Item` line.
+3. Optional: port the skip-reason counter dictionary for parity with Availability's verbose output.
+
+**Acceptance:** PAYG rates for any SKU with both Regular and Spot meters in the price sheet match Azure portal Cost Management within rounding; RI savings columns are non-negative.
+
+---
+
+### 0b. Retail-fallback price marker (`*` prefix)
+**Availability ref:** commit `bca90c6` "feat(pricing): mark retail-fallback prices with '*' + Tier 1 skip diagnostics". Files: `AzVMAvailability/Public/Get-AzVMAvailability.ps1`, `AzVMAvailability/Private/Format/Invoke-RecommendMode.ps1`, `AzVMAvailability/Private/Format/New-RecommendOutputContract.ps1`.
+
+**Behavior:** When a region's negotiated rates are not in the price sheet (sovereign Gov regions sometimes omit rates), the row falls back to the public retail Cost Management API. Those cells are now prefixed with `*` so users can see at a glance which prices are negotiated vs retail, and a header comment legend documents the marker.
+
+**Lifecycle status:** Not implemented. Lifecycle silently mixes negotiated and retail rates with no visual distinction.
+
+**Action — port:**
+1. Add a per-row `PriceIsNegotiated` boolean threaded through the candidate emit and ranked re-projections.
+2. Track which regions fell back via a `$script:RunContext.RetailFallbackRegions` list (or equivalent) populated by the Tier 1 region-resolve branch.
+3. In the export property arrays, prefix `*` on each price column when `-not $row.PriceIsNegotiated`.
+4. Add a header-comment legend to the Lifecycle Summary tab: `* = retail rate (negotiated rate not found in price sheet for this region)`.
+5. If Lifecycle emits a JSON contract, add `priceIsNegotiated` as a sibling field on each price object.
+
+---
+
+### 0c. Tier 1 disk-load logging symmetry
+**Availability ref:** commit `fed02f6` "fix(pricing): log Tier 1 success on first (disk-load) region call too".
+
+**Bug:** The cache-hit branch only logged `Tier 1 (Price Sheet): N negotiated SKU prices for '<region>' (cached)` after the *second* call (when in-memory `$Caches.ActualPricing['AllRegions']` was already populated). The first call — which loaded from disk — silently returned without any per-region count. Diagnostic asymmetry made it look like the first region got zero prices.
+
+**Fix:** Same `resolvePriceSheetKey` lookup + log line is now run in the disk-load branch too.
+
+**Lifecycle status:** Verify Lifecycle's disk-cache load path emits the same per-region count log on first hit.
+
+**Action — port:** Mirror the symmetric log line. Trivial 5-line diff.
+
+---
+
+## P1 — Output correctness (recent fixes in Availability — port now)
+
+### 0d. Per-sub quota deficit double-counting
+**Availability ref:** commit `f253a25` "fix(quota+lifecycle): drop quota-only current-gen rows from Summary/HighRisk/MediumRisk; flag deficit only when family is over its limit". File: `AzVMAvailability/Public/Get-AzVMAvailability.ps1` ~L2370–2400, L2516–2520.
+
+**Bug:** The per-sub quota check called `Get-QuotaAvailable -RequiredvCPUs ($qty * $sourceVcpu)` and flagged a deficit when `Available < required`. But `$qty * $sourceVcpu` is the running fleet's existing usage, **already counted in `$qi.Current`**. The check was effectively asking "can I deploy 100% of my running fleet again on top of itself?" — a guaranteed false positive whenever fleet size approached half the quota. Real-world example: `Standard_NV48s_v3` Qty=17, family quota 876/1000 (avail 124). The check computed `17 × 48 = 816` needed against `124` available → flagged deficit, even though the fleet is operating fine.
+
+**Fix:** Per-sub deficit now flags only when `Current > Limit` (the family is genuinely over its cap *right now*). Migration headroom for the *target* SKU is a separate concern that depends on the chosen recommendation and is not surfaced as a Quota deficit on the map. Reason text reworded:
+- **Old:** `Quota: insufficient in N of M deploying sub(s) (need NvCPU/VM)`
+- **New:** `Quota: family over limit in N of M deploying sub(s)`
+
+**Lifecycle status:** Verify whether Lifecycle's per-sub quota check has the same double-counting pattern. Search for `Get-QuotaAvailable` invocations that pass `qty * vCPU`.
+
+**Action — port:** Pass `RequiredvCPUs=0` to the quota check; flag deficit only when `[int]$qi.Current -gt [int]$qi.Limit`. Update reason text.
+
+---
+
+### 0e. Quota-only current-gen rows excluded from Summary / High Risk / Medium Risk
+**Availability ref:** same commit `f253a25`.
+
+**Bug:** Current-generation SKUs with no retirement, no capacity issue, and no "not available for new" signal were being emitted to the Lifecycle Summary, High Risk, and Medium Risk sheets purely because of a per-sub quota signal. Real-world example: `Standard_D16as_v4`, `Standard_D16ds_v5` rows polluting the Summary with risk reasons that were already proven false-positive by the fix above.
+
+**Fix:** Such rows are flagged with `_QuotaOnlyCurrentGen = $true` and:
+- Excluded from `$lcSortedResults`, `$highBase`, `$medBase` (Summary / High / Medium sheets).
+- Excluded from console + workbook box risk counters.
+- **Retained** for SubMap / RGMap propagation so the affected sub(s) still see the quota signal in context.
+
+**Lifecycle status:** Likely affected — Lifecycle's row-emission logic doesn't have a current-gen-only-quota filter today.
+
+**Action — port:** Add the `_QuotaOnlyCurrentGen` flag at row emission time; filter it out of the three summary-style sheets while keeping it in SubMap/RGMap.
+
+---
+
+### 0f. Paired meter-name split (`D3 v2/DS3 v2` → both ARM SKUs)
+**Availability ref:** commits `0fa4a89` and `b87f60c` (corrected regex). File: `AzVMAvailability/Private/Azure/Get-AzActualPricing.ps1`.
+
+**Bug:** Some Price Sheet rows describe a single meter that maps to two ARM SKUs in the form `D3 v2/DS3 v2` (one premium-storage variant + one standard-storage variant). The parser previously consumed the row whole, producing prices for one ARM SKU and `-` for the other. Real-world impact: every D-series v2 paired meter (D2/DS2 v2, D3/DS3 v2, D4/DS4 v2, D5/DS5 v2, etc.) had the `S`-variant or non-`S`-variant blank.
+
+**Fix:** Parser now splits on `/` and emits both ARM SKUs (e.g. `Standard_D3_v2` AND `Standard_DS3_v2`) with the same hourly/monthly rate. Cache schema bumped (`-v3-` → `-v4-` filename) so v2 paired-meter-incomplete caches are invalidated automatically.
+
+**Action — port:** Apply the same split + schema bump to Lifecycle's price-sheet parser. Pair this with **#0a's v2 cache bump** (Lifecycle should jump straight to `-v4-` to align cache schema with Availability and force a one-time refresh).
+
+**Acceptance:** `Standard_D3_v2` and `Standard_DS3_v2` both populate with PAYG rates after a fresh scan; same for the other v2 paired families.
+
+---
+
+### 0g. Strip `" Expired"` meter suffix
+**Availability ref:** commit `b87f60c` (combined with #0f).
+
+**Bug:** Price Sheet rows for retired-but-still-billable meters carry an `" Expired"` suffix on `meterName` that prevented SKU resolution. Parser silently dropped the row.
+
+**Fix:** Suffix stripped before normalization so the meter still resolves to its ARM SKU and is bucketed correctly.
+
+**Action — port:** One-line addition in Lifecycle's parser before the meter-name regex.
+
+---
+
+### 0h. Advisory upgrade-path recommendations
+**Availability ref:** commits `bd128d3` (initial advisory injection + deferred No-alt risk) and `a1ed7ad` (numeric-field hardening). Files: `AzVMAvailability/Public/Get-AzVMAvailability.ps1` (recommendation loop ~L2776–2796 advisory injection; L2624 deferred `$shouldFlagNoAlternatives` boolean).
+
+**Behavior:** When a Microsoft-documented successor SKU (`data/UpgradePath.json`) is not deployable in any scanned region, an *advisory* recommendation row is emitted with `Capacity = Advisory` so the migration target is still visible in the report. Numeric capability fields (`vCPU`, `ACU`, `memGiB`, `IOPS`, `MaxDisks`, `score`) default to `0`; the existing `-le 0` guards in the delta formatter render `0` as `-` for display. `priceMo = $null`. `MatchType = "<label> (Advisory)"`. The `"No alternatives"` risk is **no longer** flagged just because the documented successor isn't in scanned regions; it is reserved for the genuinely high-risk case where neither a same-family/compatible-profile match nor a documented successor is available.
+
+**Lifecycle status:** Likely affected — same recommendation engine pattern. Lifecycle currently emits `"No alternatives"` for any SKU whose Microsoft-documented successor is region-locked (e.g., M-series v2/v3, NVads_A10_v5 niche regions), inflating high-risk counts.
+
+**Action — port:**
+1. Add the advisory rec injection block in the recommendation emit loop. Numeric fields **MUST** be `0` (not the string `'-'`) — string sentinels crash downstream `[int]` casts in any IOPS-match guard or capability-delta extractor (this is the bug that motivated `a1ed7ad`).
+2. Replace the immediate `"No alternatives"` emit with a deferred `$shouldFlagNoAlternatives` boolean evaluated *after* advisory injection, so advisory presence suppresses the high-risk flag.
+3. Add `Advisory`, `No alternatives`, and `No alternatives in scanned regions (advisory only)` rows to whatever legend Lifecycle ships (or add a legend if it doesn't have one — see #0j below).
+
+**Acceptance:** SAP/HANA M-series v2/v3 successors visible as advisory rows in the Best-fit recommendation column when the scanned regions don't offer them; `"No alternatives"` count drops to true zero-successor cases only.
+
+---
+
+### 0i. Reservation / Savings-Plan savings as retail-vs-retail percentage
+**Availability ref:** commits `9c3035c` (RI percent), `f0a190d` (SP percent), `87c8e6b` (retail-vs-retail correction). File: `AzVMAvailability/Public/Get-AzVMAvailability.ps1` ~L1700 (`RegularRetail` map preservation), ~L2895 (consumer pulls `retailRegularMap`), ~L2965–2998 (cell formatting).
+
+**Behavior:**
+- **Display format:** `<marker><amount> (<pct>%)`, e.g. `*4,810 (37%)` for retail-fallback rates and `4,810 (37%)` for negotiated SP rates from the Price Sheet.
+- **Critical correctness rule:** the `(pct%)` denominator is the **retail PAYG fleet total**, not the negotiated/merged PAYG. Earlier development used negotiated PAYG, which compressed against the customer's already-discounted bill and made the figure non-stackable with their EA discount. Container preserves an **unmerged** retail PAYG map (`RegularRetail` key) alongside the merged `Regular` map; SP/RI denominator pulls from `RegularRetail`, falls back to `priceMo` when no retail entry exists for the SKU/region (sovereign edge case).
+- Result: a `70% RI` cell + customer's 20% EA discount yields roughly 50% realized incremental discount on top of their existing PAYG bill. Apples-to-apples against list.
+
+**Lifecycle status:** Lifecycle currently emits raw dollar savings for SP/RI columns with no percentage. If Lifecycle ports #1 (RI/SP harvesting) it must adopt the same retail-vs-retail rule from day one — otherwise the percent will be silently inflated.
+
+**Action — port:**
+1. When constructing the per-region pricing container, store the **unmerged** retail PAYG map under a `RegularRetail` key (alongside the existing merged `Regular` overlay).
+2. In the cell-format scriptblock for SP 1Yr/3Yr and RI 1Yr/3Yr, compute the denominator from `RegularRetail[$rec.sku].Monthly * (12 or 36) * $entryQty`. Fall back to negotiated `priceMo` only when no retail entry exists.
+3. Cell format: `'<marker>' + $savings.ToString('N0') + ' (' + [math]::Round(($savings / $denom) * 100, 0) + '%)'`. Marker `'*'` when retail-fallback, `''` when negotiated. Skip percent (or use 0) when denom ≤ 0.
+4. Update legend / RI tooltip to call out the retail-vs-retail basis with the worked stacking example.
+
+**Acceptance:** RI 3-Year cell on a M16ms-class SKU shows e.g. `*8,815 (62%)`; `8,815 / (62/100) ≈ 14,218` ≈ retail 3Y PAYG fleet total for that SKU+qty (verify by hand against the Azure pricing calculator).
+
+---
+
+### 0j. Lifecycle Summary legend block
+**Availability ref:** commits `bc8c07f` (initial legend), `36114ea` (widen to col J + zebra stripes). File: `AzVMAvailability/Public/Get-AzVMAvailability.ps1` ~L3473–3530.
+
+**Behavior:** A dedicated `LEGEND` section at the bottom of the Lifecycle Summary sheet documents every marker used across the lifecycle report family (`*`, `* (RI)`, `+N`, `-N`, `0`, `-`, `✓ Zones N`, `⚠ Zones N`, `✗ Zones N`, `Non-zonal`, `No alternatives`, `Advisory`, etc.). Banner spans `A:J`; marker cell merged `A:B` (centered, bold, wraps); meaning cell merged `C:J` (wrapped, vertically centered). Zebra-striped rows (alternating light-gray / white) with thin gray bottom borders for clarity. Per-row heights tuned to fit explanations on 1–2 lines at the wider width.
+
+**Lifecycle status:** Existing `docs/Excel-Legend-Reference.md` documents the markers but the workbook itself does not embed an inline legend.
+
+**Action — port:** Lift the entire `LEGEND` block (the 60-line `$legendItems` array + the styled write loop). Place it at the bottom of the Lifecycle Summary sheet immediately after the SUMMARY footer rows. Use the same `$headerBlue` / `$lightGray` palette already present in Lifecycle's styling helpers.
+
+**Acceptance:** Open a fresh lifecycle XLSX, scroll to the bottom of the Summary tab, and see a banner + table of marker meanings with zebra striping.
+
+---
+
+### 0k. Cosmetic price-cell cleanup (`+0` → `0`, drop `$`, force text format)
+**Availability ref:** commits `8b888e9` (`+0` / `±0` → plain `0`), `e5bee88` (equality-delta sentinel `=` → `0` to dodge Excel formula parser), `e55f010` (drop dollar signs), `3854b07` (force price columns to text via `-NoNumberConversion`).
+
+**Bug catalog:**
+- Capability-delta cells used `±0` for equality, which Excel sometimes interpreted oddly; price-diff used `+0`. Both replaced with plain `0`.
+- An older equality sentinel was `=`, which Excel treated as the start of a formula and corrupted the cell.
+- Some cells leaked `$` into the value, breaking column alignment with non-currency deltas.
+- Price columns occasionally rendered as numbers (stripping the `*` / `+` / `-` markers); `-NoNumberConversion` on `Export-Excel` forces them to text.
+
+**Action — port:** Verify Lifecycle's delta formatter and Export-Excel call. Replace any `±0` / `+0` / `=` sentinel with `'0'`; drop any `$` literal; pass `-NoNumberConversion @('Price Diff','Total','3-Year Cost','SP 3-Year Savings','RI 3-Year Savings')` (mirror Availability's `$priceColNames` array).
 
 ---
 
@@ -225,12 +396,24 @@ direct port is limited.
 
 ## Quick port order (recommended)
 
-1. **#5 Dedupe candidate pool** — biggest perf win, safe, no behavior change.
-2. **#1 Price-sheet RI/SP parsing** — wait for Availability to finish probe analysis, then port both the parser change and `Probe-PriceSheetRI.ps1` together.
-3. **#7 Tenant-wide ARG advisor query** — perf + signal coverage.
-4. **#6 NotAvailableForNewDeployments signal** — quality of risk surfacing.
-5. **#9 docs subset** — pick the 5 high-value files.
-6. **#8 Update-RetirementData / Sync-TrafficInfra** — if/when relevant.
+1. **#0a Spot/Low-Priority meter exclusion + cache schema bump (jump to v4)** — correctness, blocks all pricing accuracy. Bumping straight to `-v4-` (Availability's current schema) aligns the cache filename so a single tenant served by both modules doesn't double-cache, and simultaneously invalidates v1-poisoned caches and v2 paired-meter-incomplete caches.
+2. **#0f Paired meter-name split (`D3 v2/DS3 v2`)** — paired with #0a's bump; ports the v3 → v4 schema fix.
+3. **#0g Strip `" Expired"` meter suffix** — one-line addition, port alongside #0f.
+4. **#0d Per-sub quota deficit double-counting fix** — eliminates false-positive `Quota: insufficient` reasons.
+5. **#0e Drop quota-only current-gen rows from Summary/High/Medium sheets** — pairs with #0d.
+6. **#0b Retail-fallback `*` price marker** — visual clarity, low risk.
+7. **#0h Advisory upgrade-path recommendations** — biggest QoL win for SAP/HANA/M-series fleets; reduces `"No alternatives"` noise.
+8. **#0i Reservation/SP savings as retail-vs-retail percent** — must adopt retail-vs-retail rule from day one if Lifecycle ports #1 (RI/SP harvesting).
+9. **#0j Lifecycle Summary legend block** — pure UX, additive.
+10. **#0k Cosmetic price-cell cleanup** — small risk, high readability gain.
+11. **#0c Tier 1 disk-load logging symmetry** — diagnostic only, trivial.
+12. **#5 Dedupe candidate pool** — biggest perf win, safe.
+13. **#1 Price-sheet RI/SP parsing** — wait for Availability to finish probe analysis, then port both the parser change and `Probe-PriceSheetRI.ps1` together.
+14. **#7 Tenant-wide ARG advisor query** — perf + signal coverage.
+15. **#6 NotAvailableForNewDeployments signal** — quality of risk surfacing.
+16. **#4b `-AZ` zone columns in lifecycle XLSX** — additive, no schema migration.
+17. **#9 docs subset** — pick the 5 high-value files.
+18. **#8 Update-RetirementData / Sync-TrafficInfra** — if/when relevant.
 
 ---
 
@@ -244,4 +427,10 @@ direct port is limited.
 - Parallel cross-sub scan (`ForEach-Object -Parallel`) — present at L3978.
 - Shared price sheet disk cache (`AzVMLifecycle-PriceSheet-<tenant>.json`) —
   Availability cribs from Lifecycle's filename convention; same cache file
-  serves both modules.
+  serves both modules. **Note (2026-04-28):** Availability has bumped the schema
+  three times: v1 → v2 (Spot-meter poisoning fix), v2 → v3 (negotiated SP overlay),
+  v3 → v4 (paired-meter split + Expired suffix strip). Current filename:
+  `AzVMLifecycle-PriceSheet-v4-<tenant>.json`. Until Lifecycle ports #0a, #0f,
+  #0g and bumps to `-v4-`, the two modules will write to *different* cache files
+  when run on the same tenant; this is intentional (Lifecycle's v1 cache is
+  poisoned but it doesn't know it yet).
